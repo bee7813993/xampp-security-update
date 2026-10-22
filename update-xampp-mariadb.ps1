@@ -94,6 +94,32 @@ function Get-MariaDbVersion([string]$MysqlDir) {
     return ($version -split '\.')[0..2] -join '.'
 }
 
+# my.ini で、データの置き場所が mysql\data 以外に設定されていれば、その行を返す。
+# このスクリプトは mysql フォルダの中だけをバックアップして移行するため、ほかの場所にあるデータは扱えない。
+# <XAMPP>\mysql\data と \xampp\mysql\data（XAMPP がインストールのときに書き換える前の書き方）は、mysql\data とみなす。
+function Get-OutsideDataSetting([string]$MysqlDir) {
+    $ini = Join-Path $MysqlDir 'bin\my.ini'
+    if (-not (Test-Path -LiteralPath $ini)) {
+        return @()
+    }
+    $default = @((Join-Path $MysqlDir 'data'), '\xampp\mysql\data')
+    $section = ''
+    $found = @()
+    foreach ($line in [IO.File]::ReadAllLines($ini)) {
+        if ($line -match '^\s*\[([^\]]+)\]') {
+            $section = $Matches[1].Trim().ToLowerInvariant()
+        } elseif ($section -match '^(mysqld|mariadbd|mariadb|server|client-server)(-[\d.]+)?$' -and
+            $line -match '^\s*(datadir|innodb[-_]data[-_]home[-_]dir|innodb[-_]log[-_]group[-_]home[-_]dir)\s*=\s*"?([^"#;]*?)"?\s*(?:[#;].*)?$') {
+            # 区切りの / と、エスケープした \\ を \ にそろえる
+            $path = ($Matches[2].Trim() -replace '/', '\' -replace '(?<!^)\\{2,}', '\').TrimEnd('\')
+            if ($path -and $default -notcontains $path) {
+                $found += $line.Trim()
+            }
+        }
+    }
+    return $found
+}
+
 function Get-FreePort {
     $listener = New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0)
     $listener.Start()
@@ -353,6 +379,10 @@ function Invoke-Update {
         Write-Host ''
         Write-Host "MariaDB はすでに $current です。更新の必要はありません。" -ForegroundColor Green
         return $null
+    }
+    $outside = @(Get-OutsideDataSetting $mysqlDir)
+    if ($outside.Count -gt 0) {
+        throw ('my.ini で、データの置き場所が mysql\data 以外に設定されています（{0}）。このスクリプトは mysql フォルダの中のデータだけを移行するため、更新できません。データを mysql\data に戻すか、MariaDB の手順に沿って手作業で移行してください。' -f ($outside -join '、'))
     }
 
     if (-not $Staging) {

@@ -97,6 +97,8 @@ update-xampp.bat -XamppDir D:\tools\xampp
 
 作業中に一時的に起動する MariaDB は、127.0.0.1 の空いているポートだけで待ち受け、権限の確認を省いた状態で動かします（root にパスワードを付けていても移行できます）。作業が終わるまで、XAMPP コントロールパネルで MySQL を操作しないでください。
 
+`my.ini` で、データの置き場所（`datadir`、`innodb_data_home_dir`、`innodb_log_group_home_dir`）を `mysql\data` 以外にしている場合は、何も変更せずに止まります。このスクリプトは `mysql` フォルダの中だけをバックアップして移行するためです。
+
 ### phpMyAdmin の更新で行うこと（update-xampp-phpmyadmin.bat）
 
 1. phpMyAdmin 公式の配布物（`phpMyAdmin-5.2.3-all-languages.zip`）を取得し、phpMyAdmin が公開している SHA-256 と照合します。
