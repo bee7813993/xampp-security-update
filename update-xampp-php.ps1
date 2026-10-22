@@ -73,6 +73,7 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+. (Join-Path $PSScriptRoot 'xampp-update-common.ps1')
 
 # 入れ替え先の PHP。SHA-256 は php.net の releases.json で公開されている値。
 $Release = @{
@@ -85,61 +86,9 @@ $Release = @{
     )
     Fixes   = 'CVE-2026-109618, CVE-2026-109619'
 }
-$VcRedistUrl = 'https://aka.ms/vs/17/release/vc_redist.x64.exe'
+$VcRedistUrl = 'https://aka.ms/vc14/vc_redist.x64.exe'
 # バックアップの中で、apache\bin から退避した DLL と追加した DLL の一覧を置くフォルダ
 $ApacheBackupName = '_apache_bin'
-
-function Write-Step([string]$Message) {
-    Write-Host ''
-    Write-Host "==> $Message" -ForegroundColor Cyan
-}
-
-function Write-Info([string]$Message) {
-    Write-Host "    $Message"
-}
-
-function Write-Note([string]$Message) {
-    Write-Host "    [注意] $Message" -ForegroundColor Yellow
-}
-
-# ネイティブコマンドを実行し、標準エラーも含めた出力と終了コードを返す。
-# Windows PowerShell 5.1 は $ErrorActionPreference = 'Stop' のまま 2>&1 すると
-# 標準エラーへの出力で例外になるため、ここでだけ Continue にする。
-function Invoke-Native([string]$FilePath, [string[]]$Arguments) {
-    $saved = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try {
-        $lines = @(& $FilePath @Arguments 2>&1 | ForEach-Object { "$_" })
-        [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = ($lines -join "`n") }
-    } finally {
-        $ErrorActionPreference = $saved
-    }
-}
-
-function Resolve-XamppDir {
-    if ($XamppDir) {
-        if (-not (Test-Path -LiteralPath $XamppDir -PathType Container)) {
-            throw "XAMPP のフォルダが見つかりません: $XamppDir"
-        }
-        return (Resolve-Path -LiteralPath $XamppDir).Path.TrimEnd('\')
-    }
-    if (Test-Path -LiteralPath 'C:\xampp\php\php8ts.dll') {
-        return 'C:\xampp'
-    }
-    $found = @(
-        [IO.DriveInfo]::GetDrives() |
-            Where-Object { $_.DriveType -eq 'Fixed' -and $_.IsReady } |
-            ForEach-Object { Join-Path $_.RootDirectory.FullName 'xampp' } |
-            Where-Object { Test-Path -LiteralPath (Join-Path $_ 'php\php8ts.dll') }
-    )
-    if ($found.Count -eq 1) {
-        return $found[0]
-    }
-    if ($found.Count -eq 0) {
-        throw 'XAMPP が見つかりません。-XamppDir で XAMPP のフォルダを指定してください。'
-    }
-    throw ('XAMPP が複数見つかりました（{0}）。-XamppDir でどれか 1 つを指定してください。' -f ($found -join ', '))
-}
 
 function Get-PhpVersion([string]$PhpDir) {
     $dll = Join-Path $PhpDir 'php8ts.dll'
@@ -157,258 +106,25 @@ function ConvertTo-Version([string]$Text) {
     return $null
 }
 
-function Test-Sha256([string]$Path) {
-    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash -eq $Release.Sha256
-}
-
-function Test-SameFile([string]$Left, [string]$Right) {
-    return ((Get-Item -LiteralPath $Left).Length -eq (Get-Item -LiteralPath $Right).Length) -and
-        ((Get-FileHash -LiteralPath $Left).Hash -eq (Get-FileHash -LiteralPath $Right).Hash)
-}
-
 function Get-ReleaseZip {
     if ($PhpZip) {
         $path = (Resolve-Path -LiteralPath $PhpZip).Path
-        if (-not (Test-Sha256 $path)) {
+        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $Release.Sha256) {
             throw "SHA-256 が公式の値と一致しません: $path"
         }
         return $path
     }
-    foreach ($path in @((Join-Path $PSScriptRoot $Release.File), (Join-Path $DownloadDir $Release.File))) {
-        if ((Test-Path -LiteralPath $path) -and (Test-Sha256 $path)) {
-            return $path
-        }
+    $local = Join-Path $PSScriptRoot $Release.File
+    if ((Test-Path -LiteralPath $local) -and (Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash -eq $Release.Sha256) {
+        return $local
     }
-
-    New-Item -ItemType Directory -Force -Path $DownloadDir | Out-Null
     $dest = Join-Path $DownloadDir $Release.File
-    $part = "$dest.part"
-    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-    foreach ($url in $Release.Urls) {
-        Write-Info "ダウンロード中: $url"
-        try {
-            Invoke-WebRequest -Uri $url -OutFile $part -UseBasicParsing
-            if (Test-Sha256 $part) {
-                Move-Item -LiteralPath $part -Destination $dest -Force
-                return $dest
-            }
-            Write-Note 'SHA-256 が公式の値と一致しないため、このファイルは使いません。'
-        } catch {
-            Write-Note "取得できませんでした: $($_.Exception.Message)"
-        }
-        Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue
+    try {
+        Save-VerifiedFile $Release.Urls $dest $Release.Sha256
+    } catch {
+        throw "公式の PHP を取得できませんでした。php.net から $($Release.File) を入手し、-PhpZip で指定してください。"
     }
-    throw "公式の PHP を取得できませんでした。php.net から $($Release.File) を入手し、-PhpZip で指定してください。"
-}
-
-# この XAMPP の Apache / PHP として動いているプロセス
-function Get-BlockingProcess([string]$Root) {
-    $prefix = $Root + '\'
-    foreach ($process in @(Get-Process -Name 'httpd', 'php', 'php-cgi', 'php-win', 'phpdbg' -ErrorAction SilentlyContinue)) {
-        $path = $null
-        try { $path = $process.Path } catch { }
-        if ($path) {
-            if ($path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
-                $process
-            }
-        } elseif ($process.ProcessName -eq 'httpd') {
-            # 権限の都合で場所を読めない httpd（サービスとして動いているものなど）も止めてもらう
-            $process
-        }
-    }
-}
-
-# この XAMPP の Apache / PHP を使っている、止まっていないサービス
-function Get-BlockingService([string]$Root) {
-    $prefix = $Root + '\'
-    Get-CimInstance -ClassName Win32_Service -ErrorAction SilentlyContinue | Where-Object {
-        $_.State -ne 'Stopped' -and $_.PathName -and
-        $_.PathName.IndexOf($prefix, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
-        $_.PathName -match '(?i)httpd\.exe|php'
-    }
-}
-
-function Assert-NotRunning([string]$Root) {
-    $services = @(Get-BlockingService $Root)
-    $processes = @(Get-BlockingProcess $Root)
-    if ($services.Count -eq 0 -and $processes.Count -eq 0) {
-        Write-Info '問題ありません。'
-        return
-    }
-    foreach ($service in $services) {
-        Write-Note "動作中のサービス: $($service.Name)（$($service.DisplayName)）"
-    }
-    foreach ($process in $processes) {
-        Write-Note "動作中のプロセス: $($process.ProcessName).exe（PID $($process.Id)）"
-    }
-    if (-not $Force) {
-        throw 'XAMPP コントロールパネルで Apache を Stop してから（サービスとして登録している場合はサービスも停止してから）、もう一度実行してください。'
-    }
-    Write-Note '-Force が指定されているため続行します。'
-}
-
-function Confirm-Continue([string]$Question) {
-    if ($Yes) {
-        return
-    }
-    $answer = Read-Host "$Question [y/N]"
-    if ($answer -notmatch '^(?i)y(es)?$') {
-        Write-Host '中止しました。何も変更していません。'
-        exit 2
-    }
-}
-
-function Invoke-Robocopy([string]$Source, [string]$Destination, [string[]]$Options) {
-    $arguments = @($Source.TrimEnd('\'), $Destination.TrimEnd('\')) + $Options + @('/R:2', '/W:1', '/NP', '/NFL', '/NDL', '/NJH', '/NJS')
-    $result = Invoke-Native 'robocopy.exe' $arguments
-    # robocopy は終了コード 8 以上が失敗
-    if ($result.ExitCode -ge 8) {
-        throw "ファイルのコピーに失敗しました（robocopy の終了コード $($result.ExitCode)）。`n$($result.Output.Trim())"
-    }
-}
-
-# PE ファイル（DLL）が読み込む DLL の名前を返す（通常のインポートと遅延読み込みの両方）
-function Get-PeImport([string]$Path) {
-    $bytes = [IO.File]::ReadAllBytes($Path)
-    $pe = [BitConverter]::ToInt32($bytes, 0x3C)
-    if ([BitConverter]::ToUInt32($bytes, $pe) -ne 0x4550) {
-        throw "PE 形式ではありません: $Path"
-    }
-    $sectionCount = [BitConverter]::ToUInt16($bytes, $pe + 6)
-    $optionalHeader = $pe + 24
-    $sectionTable = $optionalHeader + [BitConverter]::ToUInt16($bytes, $pe + 20)
-    $dataDirectory = $optionalHeader + 96
-    if ([BitConverter]::ToUInt16($bytes, $optionalHeader) -eq 0x20B) {
-        $dataDirectory = $optionalHeader + 112
-    }
-
-    $toOffset = {
-        param([long]$Rva)
-        for ($i = 0; $i -lt $sectionCount; $i++) {
-            $section = $sectionTable + 40 * $i
-            $start = [long][BitConverter]::ToUInt32($bytes, $section + 12)
-            $size = [Math]::Max([long][BitConverter]::ToUInt32($bytes, $section + 8), [long][BitConverter]::ToUInt32($bytes, $section + 16))
-            if ($Rva -ge $start -and $Rva -lt $start + $size) {
-                return [int]($Rva - $start + [BitConverter]::ToUInt32($bytes, $section + 20))
-            }
-        }
-        return -1
-    }
-    $readName = {
-        param([int]$Offset)
-        $end = $Offset
-        while ($bytes[$end] -ne 0) {
-            $end++
-        }
-        return [Text.Encoding]::ASCII.GetString($bytes, $Offset, $end - $Offset)
-    }
-
-    $names = @()
-    # インポート表はデータディレクトリの 1 番目（記述子 20 バイト、DLL 名の RVA は +12）、
-    # 遅延読み込みは 13 番目（記述子 32 バイト、DLL 名の RVA は +4）
-    foreach ($table in @(@{ Index = 1; Size = 20; NameAt = 12 }, @{ Index = 13; Size = 32; NameAt = 4 })) {
-        $rva = [BitConverter]::ToUInt32($bytes, $dataDirectory + 8 * $table.Index)
-        if ($rva -eq 0) {
-            continue
-        }
-        $offset = & $toOffset $rva
-        while ($offset -ge 0) {
-            $nameRva = [BitConverter]::ToUInt32($bytes, $offset + $table.NameAt)
-            if ($nameRva -eq 0) {
-                break
-            }
-            $names += & $readName (& $toOffset $nameRva)
-            $offset += $table.Size
-        }
-    }
-    return $names
-}
-
-# php.ini で有効にしている拡張の DLL
-function Get-EnabledExtensionFile([string]$PhpDir) {
-    $ini = Join-Path $PhpDir 'php.ini'
-    if (-not (Test-Path -LiteralPath $ini)) {
-        return
-    }
-    foreach ($line in [IO.File]::ReadAllLines($ini)) {
-        if ($line -notmatch '^\s*(?:zend_)?extension\s*=\s*"?([^";\s]+)') {
-            continue
-        }
-        $name = $Matches[1]
-        if ($name -notmatch '(?i)\.dll$') {
-            $name = "php_$name.dll"
-        }
-        $path = $name
-        if (-not [IO.Path]::IsPathRooted($name)) {
-            $path = Join-Path $PhpDir "ext\$name"
-        }
-        if (Test-Path -LiteralPath $path) {
-            $path
-        }
-    }
-}
-
-# httpd-xampp.conf の LoadFile で、Apache が先に読み込んでおく DLL の名前
-function Get-PreloadedDll([string]$Root) {
-    $conf = Join-Path $Root 'apache\conf\extra\httpd-xampp.conf'
-    if (-not (Test-Path -LiteralPath $conf)) {
-        return
-    }
-    foreach ($line in [IO.File]::ReadAllLines($conf)) {
-        if ($line -match '^\s*LoadFile\s+"?([^"]+?)"?\s*$') {
-            [IO.Path]::GetFileName($Matches[1].Trim()).ToLowerInvariant()
-        }
-    }
-}
-
-# Apache（httpd.exe）から PHP と有効な拡張を読み込むときに見つからない DLL を調べる。
-# Apache は apache\bin とシステムのフォルダから DLL を探すので、php フォルダにしかない DLL は見つからない。
-function Find-ApacheMissingDependency([string]$Root) {
-    $phpDir = Join-Path $Root 'php'
-    $apacheBin = Join-Path $Root 'apache\bin'
-    $system = Join-Path $env:SystemRoot 'System32'
-    if (-not [Environment]::Is64BitProcess -and [Environment]::Is64BitOperatingSystem) {
-        $system = Join-Path $env:SystemRoot 'Sysnative'
-    }
-    $preloaded = @(Get-PreloadedDll $Root)
-
-    $queue = New-Object 'System.Collections.Generic.Queue[string]'
-    foreach ($path in @((Join-Path $phpDir 'php8apache2_4.dll'), (Join-Path $phpDir 'php8ts.dll')) + @(Get-EnabledExtensionFile $phpDir)) {
-        if (Test-Path -LiteralPath $path) {
-            $queue.Enqueue($path)
-        }
-    }
-    $seen = @{}
-    $add = @()
-    $unresolved = @()
-    while ($queue.Count -gt 0) {
-        $module = $queue.Dequeue()
-        try {
-            $imports = @(Get-PeImport $module)
-        } catch {
-            $unresolved += "$(Split-Path -Leaf $module)（依存関係を読み取れません）"
-            continue
-        }
-        foreach ($name in $imports) {
-            $key = $name.ToLowerInvariant()
-            if ($seen.ContainsKey($key)) {
-                continue
-            }
-            $seen[$key] = $true
-            if ($key -like 'api-ms-win-*' -or $key -like 'ext-ms-*' -or $preloaded -contains $key -or
-                (Test-Path -LiteralPath (Join-Path $apacheBin $name)) -or (Test-Path -LiteralPath (Join-Path $system $name))) {
-                continue
-            }
-            $candidate = Join-Path $phpDir $name
-            if (Test-Path -LiteralPath $candidate) {
-                $add += $name
-                $queue.Enqueue($candidate)
-            } else {
-                $unresolved += "$name（$(Split-Path -Leaf $module) が使用）"
-            }
-        }
-    }
-    return [pscustomobject]@{ Add = $add; Unresolved = $unresolved }
+    return $dest
 }
 
 # apache\bin にある DLL のうち、いまの php フォルダの同名の DLL と中身が同じもの（XAMPP が PHP からコピーしたもの）
@@ -465,23 +181,39 @@ function Sync-ApacheBin([string]$Root, [string[]]$Copies, [string]$Backup) {
     return [pscustomobject]@{ Updated = $updated; Added = $added; Unresolved = $missing.Unresolved }
 }
 
-# Sync-ApacheBin で変えた apache\bin を、バックアップの中の記録から元に戻す
-function Restore-ApacheBin([string]$Root, [string]$Backup) {
+# Sync-ApacheBin で変えた apache\bin を、バックアップの中の記録から元に戻す。
+# $ReplacedPhpDir（入れ替え後の php フォルダ）を渡すと、そこからコピーしたときのままの DLL だけを戻す。
+# その後の Apache の更新で Apache のものに置き換わった DLL（brotlidec.dll など）は、そのまま残す。
+function Restore-ApacheBin([string]$Root, [string]$Backup, [string]$ReplacedPhpDir) {
     $saved = Join-Path $Backup $ApacheBackupName
     if (-not (Test-Path -LiteralPath $saved)) {
         return
     }
     $apacheBin = Join-Path $Root 'apache\bin'
+    $isOurCopy = {
+        param([string]$Name)
+        $target = Join-Path $apacheBin $Name
+        if (-not (Test-Path -LiteralPath $target)) {
+            return $false
+        }
+        if (-not $ReplacedPhpDir) {
+            return $true
+        }
+        $copied = Join-Path $ReplacedPhpDir $Name
+        return (Test-Path -LiteralPath $copied) -and (Test-SameFile $target $copied)
+    }
     $added = Join-Path $saved 'added.txt'
     if (Test-Path -LiteralPath $added) {
         foreach ($name in [IO.File]::ReadAllLines($added)) {
-            if ($name) {
-                Remove-Item -LiteralPath (Join-Path $apacheBin $name) -Force -ErrorAction SilentlyContinue
+            if ($name -and (& $isOurCopy $name)) {
+                Remove-Item -LiteralPath (Join-Path $apacheBin $name) -Force
             }
         }
     }
     foreach ($file in @(Get-ChildItem -LiteralPath $saved -Filter '*.dll' -File)) {
-        Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $apacheBin $file.Name) -Force
+        if (& $isOurCopy $file.Name) {
+            Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $apacheBin $file.Name) -Force
+        }
     }
     Remove-Item -LiteralPath $saved -Recurse -Force
 }
@@ -518,20 +250,6 @@ function Get-PhpStartupMessage([string]$Root) {
         $messages += "php.exe -m の終了コード: $($result.ExitCode)"
     }
     return $messages
-}
-
-function Test-ApacheConfig([string]$Root) {
-    $httpd = Join-Path $Root 'apache\bin\httpd.exe'
-    if (-not (Test-Path -LiteralPath $httpd)) {
-        return $null
-    }
-    Push-Location -LiteralPath $Root
-    try {
-        $result = Invoke-Native $httpd @('-t')
-    } finally {
-        Pop-Location
-    }
-    return [pscustomobject]@{ Ok = ($result.Output -match 'Syntax OK'); Output = $result.Output.Trim() }
 }
 
 # php.ini に session.upload_progress.enabled = Off を入れる。変更したら $true を返す。
@@ -594,8 +312,8 @@ function Invoke-DependencyRepair([string]$Root, [string]$Current) {
     Write-Note ('Apache から読み込めない DLL があります: {0}' -f ($missing.Add -join ', '))
     if (-not $Staging) {
         Write-Step 'Apache / PHP が止まっていることを確認'
-        Assert-NotRunning $Root
-        Confirm-Continue 'php フォルダから apache\bin に、足りない DLL をコピーします。よろしいですか？'
+        Assert-NotRunning $Root $Force
+        Confirm-Continue 'php フォルダから apache\bin に、足りない DLL をコピーします。よろしいですか？' $Yes
     }
     Write-Step 'Apache から読み込む DLL をそろえる（apache\bin）'
     $sync = Sync-ApacheBin $Root @() $null
@@ -616,7 +334,7 @@ function Invoke-DependencyRepair([string]$Root, [string]$Current) {
 }
 
 function Invoke-Update {
-    $root = Resolve-XamppDir
+    $root = Resolve-XamppDir $XamppDir
     $phpDir = Join-Path $root 'php'
     Write-Step "XAMPP: $root"
 
@@ -642,8 +360,8 @@ function Invoke-Update {
     $baseline = @()
     if (-not $Staging) {
         Write-Step 'Apache / PHP が止まっていることを確認'
-        Assert-NotRunning $root
-        Confirm-Continue "$phpDir を PHP $($Release.Version) に入れ替えます。よろしいですか？"
+        Assert-NotRunning $root $Force
+        Confirm-Continue "$phpDir を PHP $($Release.Version) に入れ替えます。よろしいですか？" $Yes
     }
 
     Write-Step '公式の PHP を用意'
@@ -772,7 +490,7 @@ function Invoke-Update {
 }
 
 function Invoke-Restore {
-    $root = Resolve-XamppDir
+    $root = Resolve-XamppDir $XamppDir
     $phpDir = Join-Path $root 'php'
     $backups = @(
         Get-ChildItem -LiteralPath $root -Directory -Filter 'php_backup_*' |
@@ -789,8 +507,8 @@ function Invoke-Restore {
     }
 
     Write-Step "バックアップから元に戻す: $($backup.FullName)"
-    Assert-NotRunning $root
-    Confirm-Continue "$phpDir を $($backup.Name)（PHP $backupVersion）に戻します。よろしいですか？"
+    Assert-NotRunning $root $Force
+    Confirm-Continue "$phpDir を $($backup.Name)（PHP $backupVersion）に戻します。よろしいですか？" $Yes
 
     $aside = 'php_replaced_' + (Get-Date -Format 'yyyyMMdd-HHmmss')
     if (Test-Path -LiteralPath $phpDir) {
@@ -803,7 +521,7 @@ function Invoke-Restore {
         throw
     }
     # バックアップだったフォルダ（いまの php フォルダ）に残した記録から、apache\bin も戻す
-    Restore-ApacheBin $root $phpDir
+    Restore-ApacheBin $root $phpDir (Join-Path $root $aside)
 
     Write-Host ''
     Write-Host "元に戻しました: PHP $(Get-PhpVersion $phpDir)" -ForegroundColor Green
