@@ -121,6 +121,15 @@ try {
     $summary = @($smoke.Output -split "`n" | Where-Object { $_ -match '項目' } | Select-Object -Last 1)
     Add-Result 'Apache を起動しての確認' ($smoke.ExitCode -eq 0) ([string]($summary -join ''))
 
+    # 4 つの更新スクリプトを順に呼ぶ update-xampp.bat が、更新済みの XAMPP では何もせずに終わるか
+    Write-Host '==> update-xampp.bat（すべて更新済みのはず）'
+    $bat = Invoke-Native 'cmd.exe' @('/d', '/c', "echo.| `"$repoRoot\update-xampp.bat`" -XamppDir `"$InstallDir`" -Yes")
+    $upToDate = ([regex]::Matches($bat.Output, '更新の必要はありません')).Count
+    Add-Result 'update-xampp.bat（更新済み）' (($bat.ExitCode -eq 0) -and ($upToDate -eq 4)) "終了コード $($bat.ExitCode)、「更新の必要はありません」$upToDate 件"
+    $bat = Invoke-Native 'cmd.exe' @('/d', '/c', "echo.| `"$repoRoot\update-xampp.bat`" -XamppDir `"$InstallDir`" -Restore -Yes")
+    $nothing = ([regex]::Matches($bat.Output, 'がないため、何もしません')).Count
+    Add-Result 'update-xampp.bat -Restore（バックアップなし）' (($bat.ExitCode -eq 0) -and ($nothing -eq 4)) "終了コード $($bat.ExitCode)、「何もしません」$nothing 件"
+
     Write-Host '==> アンインストール'
     $removed = Invoke-Uninstall $InstallDir
     $leftover = @('xampp-control.exe', 'php\php8ts.dll', 'apache\bin\httpd.exe', 'apache\conf\ssl.key\server.key' | Where-Object { Test-Path -LiteralPath (Join-Path $InstallDir $_) })
