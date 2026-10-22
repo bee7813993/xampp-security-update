@@ -121,11 +121,12 @@ try {
     $summary = @($smoke.Output -split "`n" | Where-Object { $_ -match '項目' } | Select-Object -Last 1)
     Add-Result 'Apache を起動しての確認' ($smoke.ExitCode -eq 0) ([string]($summary -join ''))
 
-    # 4 つの更新スクリプトを順に呼ぶ update-xampp.bat が、更新済みの XAMPP では何もせずに終わるか
+    # 4 つの更新スクリプトを順に呼ぶ update-xampp.bat が、更新済みの XAMPP では何もせずに終わるか。
+    # 1 つの部品にしかないオプション（-NoHarden は PHP、-KeepCertificate は Apache）を付けても、ほかの部品が止まらないか
     Write-Host '==> update-xampp.bat（すべて更新済みのはず）'
-    $bat = Invoke-Native 'cmd.exe' @('/d', '/c', "echo.| `"$repoRoot\update-xampp.bat`" -XamppDir `"$InstallDir`" -Yes")
+    $bat = Invoke-Native 'cmd.exe' @('/d', '/c', "echo.| `"$repoRoot\update-xampp.bat`" -XamppDir `"$InstallDir`" -NoHarden -KeepCertificate -Yes")
     $upToDate = ([regex]::Matches($bat.Output, '更新の必要はありません')).Count
-    Add-Result 'update-xampp.bat（更新済み）' (($bat.ExitCode -eq 0) -and ($upToDate -eq 4)) "終了コード $($bat.ExitCode)、「更新の必要はありません」$upToDate 件"
+    Add-Result 'update-xampp.bat（更新済み、部品別のオプション付き）' (($bat.ExitCode -eq 0) -and ($upToDate -eq 4)) "終了コード $($bat.ExitCode)、「更新の必要はありません」$upToDate 件"
     $bat = Invoke-Native 'cmd.exe' @('/d', '/c', "echo.| `"$repoRoot\update-xampp.bat`" -XamppDir `"$InstallDir`" -Restore -Yes")
     $nothing = ([regex]::Matches($bat.Output, 'がないため、何もしません')).Count
     Add-Result 'update-xampp.bat -Restore（バックアップなし）' (($bat.ExitCode -eq 0) -and ($nothing -eq 4)) "終了コード $($bat.ExitCode)、「何もしません」$nothing 件"

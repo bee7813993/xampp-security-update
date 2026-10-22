@@ -1,17 +1,10 @@
 @echo off
 rem Updates PHP, Apache, MariaDB and phpMyAdmin bundled with XAMPP for Windows, in this order (see README.md).
-rem Components that are not installed are skipped.
+rem Components that are not installed are skipped. -Restore goes in the reverse order (see update-xampp.ps1).
 rem Usage: update-xampp.bat [-XamppDir D:\xampp] [-Restore]
 setlocal
-set "RC=0"
-for %%S in (php apache mariadb phpmyadmin) do (
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0update-xampp-%%S.ps1" %*
-    if errorlevel 1 goto failed
-)
-goto done
-:failed
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0update-xampp.ps1" %*
 set "RC=%ERRORLEVEL%"
-:done
 echo.
 pause
 exit /b %RC%

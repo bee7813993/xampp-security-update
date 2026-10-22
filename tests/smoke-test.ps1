@@ -17,8 +17,8 @@
        - memory_limit を超えるスクリプトのあとも、上限が効いていて Apache が応答し続けるか
        - memory_limit の 3 倍を 1 回で確保するスクリプトのあとも、Apache が応答し続けるか
        - MariaDB のバージョン、移行したデータ、PHP（mysqli）からの読み書き、phpMyAdmin の画面
-    4. Apache と MariaDB を止める。-ApplyUpdate を付けたときは、各スクリプトの -Restore で
-       php、apache、mysql、phpMyAdmin の各フォルダが更新前と同じに戻るかも確かめる
+    4. Apache と MariaDB を止める。-ApplyUpdate を付けたときは、update-xampp.bat -Restore で更新と逆の順に戻り、
+       php、apache、mysql、phpMyAdmin の各フォルダが更新前と同じになるかも確かめる
     5. 作業フォルダを片付ける
 
     -XamppDir のときは、そのフォルダの httpd.conf、httpd-ssl.conf の待ち受けポートと phpMyAdmin の接続先ポートを
@@ -561,20 +561,19 @@ echo json_encode(array('server' => $db->server_info, 'rows' => (int) $count));
 }
 
 if ($before) {
-    Write-Host '==> 各スクリプトの -Restore'
-    $restoreCodes = @()
-    foreach ($name in @($UpdateScripts)[($UpdateScripts.Count - 1)..0]) {
-        $restore = Invoke-Native 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $repoRoot "update-xampp-$name.ps1"), '-XamppDir', $root, '-Restore', '-Yes')
-        $restoreCodes += $restore.ExitCode
-    }
+    # 利用者と同じく update-xampp.bat で戻す。PHP の更新が apache\bin に追加した DLL は Apache のバックアップにも入るため、
+    # 更新と逆の順（Apache を PHP より先）に戻さないと、その DLL が残る
+    Write-Host '==> update-xampp.bat -Restore'
+    $restore = Invoke-Native 'cmd.exe' @('/d', '/c', "echo.| `"$repoRoot\update-xampp.bat`" -XamppDir `"$root`" -Restore -Yes")
+    $order = @([regex]::Matches($restore.Output, '元に戻す: .*\\(\w+)_backup_') | ForEach-Object { $_.Groups[1].Value })
     $now = Get-Snapshot $root
     $diff = @(@($before.Keys) + @($now.Keys) | Select-Object -Unique | Where-Object { $before[$_] -ne $now[$_] })
-    $restoreOk = (@($restoreCodes | Where-Object { $_ -ne 0 }).Count -eq 0) -and ($diff.Count -eq 0)
-    $restoreDetail = '終了コード [{0}]、比べたファイル {1} 個、差分 {2} 個' -f ($restoreCodes -join ', '), $before.Count, $diff.Count
+    $restoreOk = ($restore.ExitCode -eq 0) -and (($order -join ',') -eq 'phpMyAdmin,mysql,apache,php') -and ($diff.Count -eq 0)
+    $restoreDetail = '終了コード {0}、戻した順 {1}、比べたファイル {2} 個、差分 {3} 個' -f $restore.ExitCode, ($order -join ' → '), $before.Count, $diff.Count
     if ($diff.Count -gt 0) {
         $restoreDetail += '（' + (($diff | Select-Object -First 5) -join ', ') + '）'
     }
-    Add-Result 'Restore で元に戻る' $restoreOk $restoreDetail
+    Add-Result 'update-xampp.bat -Restore で元に戻る' $restoreOk $restoreDetail
 }
 
 if (-not $Keep) {

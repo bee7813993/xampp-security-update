@@ -46,7 +46,7 @@ XAMPP 8.0 / 8.1 系（PHP 8.0 / 8.1）は、PHP 本体のサポートが終わ�
 
 1. XAMPP コントロールパネルで Apache と MySQL を Stop します。サービスとして登録している場合は、サービスも停止します。
 2. [Releases](../../releases) から `xampp-security-update-*.zip` をダウンロードして、好きな場所に展開します。
-3. `update-xampp.bat` をダブルクリックします。PHP、Apache、MariaDB、phpMyAdmin の順に更新します（入っていない部品は飛ばします）。それぞれ内容を確認して `y` を入力し、Enter キーを押します。
+3. `update-xampp.bat` をダブルクリックします。PHP、Apache、MariaDB、phpMyAdmin の順に更新します（入っていない部品は飛ばします）。それぞれ内容を確認して `y` を入力し、Enter キーを押します。`n` と答えた部品は飛ばして、次の部品に進みます。
 4. 「完了しました」と表示されたら、XAMPP コントロールパネルで Apache と MySQL を Start します。
 5. ブラウザーで `http://localhost/dashboard/phpinfo.php` を開き、PHP Version が 8.2.35、Apache Version が Apache/2.4.69 になっていることを確認します。`http://localhost/phpmyadmin/` では、データベースサーバーが 11.4.13-MariaDB になっていることを確認できます。
 
@@ -104,13 +104,15 @@ update-xampp.bat -XamppDir D:\tools\xampp
 
 ### 元に戻す
 
-Apache と MySQL を止めてから、次のように実行します。各部品が、いちばん新しいバックアップに戻ります（バックアップがない部品は飛ばします）。
+Apache と MySQL を止めてから、次のように実行します。更新とは逆の順（phpMyAdmin、MariaDB、Apache、PHP）に、各部品がいちばん新しいバックアップに戻ります（バックアップがない部品は飛ばします）。
 
 ```bat
 update-xampp.bat -Restore
 ```
 
 MariaDB を元に戻すと、更新したあとに追加・変更したデータは失われます（入れ替え後の `mysql` フォルダは `mysql_replaced_<日時>` という名前で残します）。PHP と phpMyAdmin も、入れ替え後のフォルダを `php_replaced_<日時>`、`phpMyAdmin_replaced_<日時>` という名前で残します。
+
+部品ごとに戻すときは、`update-xampp-apache.bat -Restore` のように、各部品の bat に `-Restore` を付けて実行します。PHP と Apache の両方を戻すときは、Apache を先に戻してください。PHP のあとに Apache を更新した場合、PHP の更新で `apache\bin` に追加した DLL が Apache のバックアップに入るため、PHP を先に戻すと、その DLL が残ります。
 
 ### オプション
 
@@ -126,6 +128,8 @@ MariaDB を元に戻すと、更新したあとに追加・変更したデータ
 | `-ApacheZip <ファイル>` | Apache | 手元にある Apache Lounge の zip を使います（SHA-256 は照合します）。 |
 | `-MariaDbZip <ファイル>` | MariaDB | 手元にある MariaDB の zip を使います（SHA-256 は照合します）。 |
 | `-PhpMyAdminZip <ファイル>` | phpMyAdmin | 手元にある phpMyAdmin の zip を使います（SHA-256 は照合します）。 |
+
+`update-xampp.bat` に付けたオプションは、それを受け付ける部品のスクリプトにだけ渡します（たとえば `-NoHarden` は PHP だけ）。
 
 ## 新しく入れる
 
@@ -155,9 +159,10 @@ MariaDB を元に戻すと、更新したあとに追加・変更したデータ
 
 | スクリプト | 内容 |
 | --- | --- |
+| `update-xampp.ps1` | `update-xampp.bat` の本体です。部品ごとのスクリプトを順に（`-Restore` では逆の順に）実行し、オプションは受け付けるスクリプトにだけ渡します。 |
 | `build-package.ps1` | 公式の `xampp-windows-x64-8.2.12-0-VS16.zip` を SourceForge から取得し（SHA-256 を照合）、PHP、Apache、MariaDB、phpMyAdmin を更新した一式の zip を `dist` フォルダに作ります（`-PhpOnly` で PHP だけ）。MariaDB のデータの移行では、MariaDB を 127.0.0.1 の空いているポートで一時的に起動します。 |
 | `build-installer.ps1` | `build-package.ps1` の作業フォルダから、Inno Setup（6.3 以降）でインストーラーを作ります。 |
-| `tests\smoke-test.ps1` | XAMPP 一式の zip またはインストール済みのフォルダで、Apache を `127.0.0.1:8080` / `8443` に、MariaDB を 127.0.0.1 の空いているポートに一時的に起動し、PHP、Apache、MariaDB、phpMyAdmin の動作を確かめます。`-ApplyUpdate` では、元の MariaDB にデータを書き込んで強制終了させてから更新スクリプトを適用し、データの移行と `-Restore` も確かめます。 |
+| `tests\smoke-test.ps1` | XAMPP 一式の zip またはインストール済みのフォルダで、Apache を `127.0.0.1:8080` / `8443` に、MariaDB を 127.0.0.1 の空いているポートに一時的に起動し、PHP、Apache、MariaDB、phpMyAdmin の動作を確かめます。`-ApplyUpdate` では、元の MariaDB にデータを書き込んで強制終了させてから更新スクリプトを適用し、データの移行と、`update-xampp.bat -Restore` で更新前とまったく同じに戻ることも確かめます。 |
 | `tests\installer-test.ps1` | インストーラーを確認用のフォルダにサイレントでインストールし、中身と動作を確かめてからアンインストールします。 |
 
 ```powershell

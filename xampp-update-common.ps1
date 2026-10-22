@@ -138,13 +138,14 @@ function Get-BackupFolder([string]$Root, [string]$Prefix) {
     )
 }
 
+# 拒否されたら終了コード 2 で終わる（update-xampp.ps1 は、その部品を飛ばして次の部品に進む）
 function Confirm-Continue([string]$Question, [bool]$Yes) {
     if ($Yes) {
         return
     }
     $answer = Read-Host "$Question [y/N]"
     if ($answer -notmatch '^(?i)y(es)?$') {
-        Write-Host '中止しました。何も変更していません。'
+        Write-Host '中止しました。この部品は変更していません。'
         exit 2
     }
 }
