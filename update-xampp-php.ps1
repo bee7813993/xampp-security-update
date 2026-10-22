@@ -495,6 +495,7 @@ function Invoke-Restore {
     Write-Host ''
     Write-Host "元に戻しました: PHP $(Get-PhpVersion $phpDir)" -ForegroundColor Green
     Write-Host "入れ替え後の php フォルダは $aside として残しています。"
+    Write-OlderBackupNote $root 'php_backup_' 'update-xampp-php.bat'
     Write-Host 'XAMPP コントロールパネルで Apache を Start してください。'
 }
 

@@ -335,14 +335,18 @@ function Invoke-CertificateRepair([string]$Root, [string]$Current) {
         Assert-NotRunning $Root $Force
         Confirm-Continue 'localhost 用の証明書を作り直します。よろしいですか？' $Yes
     }
+    # バックアップのフォルダは、証明書を作り直すときに Update-WeakCertificate が作る
+    # （作り直さなかったときに空のバックアップを残すと、-Restore がそちらを選んでしまうため）
     $backup = $null
     if (-not $Staging) {
         $backup = Join-Path $Root ('apache_backup_{0}_{1}' -f $Current, (Get-Date -Format 'yyyyMMdd-HHmmss'))
-        New-Item -ItemType Directory -Force -Path $backup | Out-Null
     }
     $problems = New-Object System.Collections.ArrayList
     Write-Step 'HTTPS の証明書を確認'
     $cert = Update-WeakCertificate $apacheDir $backup $problems
+    if ($backup -and -not (Test-Path -LiteralPath $backup)) {
+        $backup = $null
+    }
     return [pscustomobject]@{
         XamppDir    = $Root
         FromVersion = $Current
@@ -526,6 +530,7 @@ function Invoke-Restore {
 
     Write-Host ''
     Write-Host "元に戻しました: Apache $(Get-ApacheVersion $apacheDir)" -ForegroundColor Green
+    Write-OlderBackupNote $root 'apache_backup_' 'update-xampp-apache.bat'
     Write-Host 'XAMPP コントロールパネルで Apache を Start してください。'
 }
 

@@ -201,6 +201,7 @@ function Invoke-Restore {
     Write-Host ''
     Write-Host "元に戻しました: phpMyAdmin $(Get-PhpMyAdminVersion $pmaDir)" -ForegroundColor Green
     Write-Host "入れ替え後の phpMyAdmin フォルダは $aside として残しています。"
+    Write-OlderBackupNote $root 'phpMyAdmin_backup_' 'update-xampp-phpmyadmin.bat'
 }
 
 try {

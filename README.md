@@ -114,6 +114,8 @@ update-xampp.bat -Restore
 
 MariaDB を元に戻すと、更新したあとに追加・変更したデータは失われます（入れ替え後の `mysql` フォルダは `mysql_replaced_<日時>` という名前で残します）。PHP と phpMyAdmin も、入れ替え後のフォルダを `php_replaced_<日時>`、`phpMyAdmin_replaced_<日時>` という名前で残します。
 
+更新を何度か実行してバックアップが複数ある場合は、1 回の `-Restore` で新しいものから 1 つずつ戻ります。さらに古いバックアップが残っているときは、そのことを表示します。
+
 部品ごとに戻すときは、`update-xampp-apache.bat -Restore` のように、各部品の bat に `-Restore` を付けて実行します。PHP と Apache の両方を戻すときは、Apache を先に戻してください。PHP のあとに Apache を更新した場合、PHP の更新で `apache\bin` に追加した DLL が Apache のバックアップに入るため、PHP を先に戻すと、その DLL が残ります。
 
 ### オプション

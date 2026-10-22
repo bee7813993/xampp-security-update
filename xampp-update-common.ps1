@@ -138,6 +138,14 @@ function Get-BackupFolder([string]$Root, [string]$Prefix) {
     )
 }
 
+# 元に戻したあとに、さらに古いバックアップが残っていれば知らせる
+function Write-OlderBackupNote([string]$Root, [string]$Prefix, [string]$Bat) {
+    $older = @(Get-BackupFolder $Root $Prefix)
+    if ($older.Count -gt 0) {
+        Write-Host "さらに古いバックアップ（$($older[0].Name)）があります。そこまで戻すには、もう一度 $Bat -Restore を実行してください。"
+    }
+}
+
 # 拒否されたら終了コード 2 で終わる（update-xampp.ps1 は、その部品を飛ばして次の部品に進む）
 function Confirm-Continue([string]$Question, [bool]$Yes) {
     if ($Yes) {

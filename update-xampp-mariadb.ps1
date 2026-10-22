@@ -529,6 +529,7 @@ function Invoke-Restore {
     Write-Host ''
     Write-Host "元に戻しました: MariaDB $(Get-MariaDbVersion $mysqlDir)" -ForegroundColor Green
     Write-Host "入れ替え後の mysql フォルダは $aside として残しています。"
+    Write-OlderBackupNote $root 'mysql_backup_' 'update-xampp-mariadb.bat'
     Write-Host 'XAMPP コントロールパネルで MySQL を Start してください。'
 }
 
