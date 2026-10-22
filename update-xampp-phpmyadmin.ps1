@@ -78,35 +78,6 @@ function Get-PhpMyAdminVersion([string]$Dir) {
     return $null
 }
 
-function ConvertTo-Version([string]$Text) {
-    $version = $null
-    if ([version]::TryParse($Text, [ref]$version)) {
-        return $version
-    }
-    return $null
-}
-
-function Get-ReleaseZip {
-    if ($PhpMyAdminZip) {
-        $path = (Resolve-Path -LiteralPath $PhpMyAdminZip).Path
-        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $Release.Sha256) {
-            throw "SHA-256 が公開値と一致しません: $path"
-        }
-        return $path
-    }
-    $local = Join-Path $PSScriptRoot $Release.File
-    if ((Test-Path -LiteralPath $local) -and (Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash -eq $Release.Sha256) {
-        return $local
-    }
-    $dest = Join-Path $DownloadDir $Release.File
-    try {
-        Save-VerifiedFile $Release.Urls $dest $Release.Sha256
-    } catch {
-        throw "phpMyAdmin を取得できませんでした。$($Release.File) を入手し、-PhpMyAdminZip で指定してください。"
-    }
-    return $dest
-}
-
 function Invoke-Update {
     $root = Resolve-XamppDir $XamppDir
     $pmaDir = Join-Path $root 'phpMyAdmin'
@@ -134,7 +105,7 @@ function Invoke-Update {
     }
 
     Write-Step 'phpMyAdmin を用意'
-    $zip = Get-ReleaseZip
+    $zip = Get-ReleaseFile $PhpMyAdminZip $Release $DownloadDir "phpMyAdmin を取得できませんでした。$($Release.File) を入手し、-PhpMyAdminZip で指定してください。"
     Write-Info "SHA-256 一致: $zip"
 
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'

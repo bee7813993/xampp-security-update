@@ -94,35 +94,6 @@ function Get-MariaDbVersion([string]$MysqlDir) {
     return ($version -split '\.')[0..2] -join '.'
 }
 
-function ConvertTo-Version([string]$Text) {
-    $version = $null
-    if ([version]::TryParse($Text, [ref]$version)) {
-        return $version
-    }
-    return $null
-}
-
-function Get-ReleaseZip {
-    if ($MariaDbZip) {
-        $path = (Resolve-Path -LiteralPath $MariaDbZip).Path
-        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $Release.Sha256) {
-            throw "SHA-256 が公開値と一致しません: $path"
-        }
-        return $path
-    }
-    $local = Join-Path $PSScriptRoot $Release.File
-    if ((Test-Path -LiteralPath $local) -and (Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash -eq $Release.Sha256) {
-        return $local
-    }
-    $dest = Join-Path $DownloadDir $Release.File
-    try {
-        Save-VerifiedFile $Release.Urls $dest $Release.Sha256
-    } catch {
-        throw "MariaDB を取得できませんでした。$($Release.File) を入手し、-MariaDbZip で指定してください。"
-    }
-    return $dest
-}
-
 function Get-FreePort {
     $listener = New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0)
     $listener.Start()
@@ -398,7 +369,7 @@ function Invoke-Update {
     }
 
     Write-Step 'MariaDB を用意'
-    $zip = Get-ReleaseZip
+    $zip = Get-ReleaseFile $MariaDbZip $Release $DownloadDir "MariaDB を取得できませんでした。$($Release.File) を入手し、-MariaDbZip で指定してください。"
     Write-Info "SHA-256 一致: $zip"
 
     $backup = $null

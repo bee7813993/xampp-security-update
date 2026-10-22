@@ -97,14 +97,6 @@ function Get-ApacheVersion([string]$ApacheDir) {
     return ((Get-Item -LiteralPath $exe).VersionInfo.FileVersion -split ' ')[0].Trim()
 }
 
-function ConvertTo-Version([string]$Text) {
-    $version = $null
-    if ([version]::TryParse($Text, [ref]$version)) {
-        return $version
-    }
-    return $null
-}
-
 # Apache Lounge の VS18 ビルドに必要な Visual C++ ランタイムが入っているか
 function Test-VcRuntime {
     $required = [version]$Release.VcRuntime
@@ -119,27 +111,6 @@ function Test-VcRuntime {
         }
     }
     return $null
-}
-
-function Get-ReleaseZip {
-    if ($ApacheZip) {
-        $path = (Resolve-Path -LiteralPath $ApacheZip).Path
-        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $Release.Sha256) {
-            throw "SHA-256 が公開値と一致しません: $path"
-        }
-        return $path
-    }
-    $local = Join-Path $PSScriptRoot $Release.File
-    if ((Test-Path -LiteralPath $local) -and (Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash -eq $Release.Sha256) {
-        return $local
-    }
-    $dest = Join-Path $DownloadDir $Release.File
-    try {
-        Save-VerifiedFile $Release.Urls $dest $Release.Sha256
-    } catch {
-        throw "Apache を取得できませんでした。$($Release.File) を入手し、-ApacheZip で指定してください。"
-    }
-    return $dest
 }
 
 # Apache Lounge の zip のうち、apache フォルダに上書きするファイル（apache フォルダからの相対パス）
@@ -421,7 +392,7 @@ function Invoke-Update {
     }
 
     Write-Step 'Apache Lounge の Apache を用意'
-    $zip = Get-ReleaseZip
+    $zip = Get-ReleaseFile $ApacheZip $Release $DownloadDir "Apache を取得できませんでした。$($Release.File) を入手し、-ApacheZip で指定してください。"
     Write-Info "SHA-256 一致: $zip"
 
     $apacheBefore = $null
@@ -431,7 +402,7 @@ function Invoke-Update {
     $problems = New-Object System.Collections.ArrayList
     $extract = Join-Path ([IO.Path]::GetTempPath()) ('xampp-apache-' + [guid]::NewGuid().ToString('N'))
     try {
-        Expand-Archive -LiteralPath $zip -DestinationPath $extract
+        Expand-ZipFile $zip $extract
         $source = Join-Path $extract 'Apache24'
         $newVersion = Get-ApacheVersion $source
         if ($newVersion -ne $Release.Version) {

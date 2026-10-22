@@ -98,35 +98,6 @@ function Get-PhpVersion([string]$PhpDir) {
     return (Get-Item -LiteralPath $dll).VersionInfo.ProductVersion.Trim()
 }
 
-function ConvertTo-Version([string]$Text) {
-    $version = $null
-    if ([version]::TryParse($Text, [ref]$version)) {
-        return $version
-    }
-    return $null
-}
-
-function Get-ReleaseZip {
-    if ($PhpZip) {
-        $path = (Resolve-Path -LiteralPath $PhpZip).Path
-        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $Release.Sha256) {
-            throw "SHA-256 が公式の値と一致しません: $path"
-        }
-        return $path
-    }
-    $local = Join-Path $PSScriptRoot $Release.File
-    if ((Test-Path -LiteralPath $local) -and (Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash -eq $Release.Sha256) {
-        return $local
-    }
-    $dest = Join-Path $DownloadDir $Release.File
-    try {
-        Save-VerifiedFile $Release.Urls $dest $Release.Sha256
-    } catch {
-        throw "公式の PHP を取得できませんでした。php.net から $($Release.File) を入手し、-PhpZip で指定してください。"
-    }
-    return $dest
-}
-
 # apache\bin にある DLL のうち、いまの php フォルダの同名の DLL と中身が同じもの（XAMPP が PHP からコピーしたもの）
 function Get-PhpCopyInApacheBin([string]$Root) {
     $apacheBin = Join-Path $Root 'apache\bin'
@@ -365,14 +336,14 @@ function Invoke-Update {
     }
 
     Write-Step '公式の PHP を用意'
-    $zip = Get-ReleaseZip
+    $zip = Get-ReleaseFile $PhpZip $Release $DownloadDir "公式の PHP を取得できませんでした。php.net から $($Release.File) を入手し、-PhpZip で指定してください。"
     Write-Info "SHA-256 一致: $zip"
 
     $backup = $null
     $sync = $null
     $extract = Join-Path ([IO.Path]::GetTempPath()) ('xampp-php-' + [guid]::NewGuid().ToString('N'))
     try {
-        Expand-Archive -LiteralPath $zip -DestinationPath $extract
+        Expand-ZipFile $zip $extract
         $newVersion = Get-PhpVersion $extract
         if ($newVersion -ne $Release.Version -or -not (Test-Path -LiteralPath (Join-Path $extract 'php8apache2_4.dll'))) {
             throw "zip の中身が想定と違います（php8ts.dll のバージョン: $newVersion）。"

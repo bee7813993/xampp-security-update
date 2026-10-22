@@ -1,5 +1,5 @@
 ﻿<#
-    update-xampp-php.ps1 と update-xampp-apache.ps1 が共通で使う関数です。
+    各更新スクリプト（update-xampp*.ps1）が共通で使う関数です。
     単独では実行せず、各スクリプトからドットソース（. .\xampp-update-common.ps1）で読み込みます。
 #>
 
@@ -150,6 +150,14 @@ function Confirm-Continue([string]$Question, [bool]$Yes) {
     }
 }
 
+function ConvertTo-Version([string]$Text) {
+    $version = $null
+    if ([version]::TryParse($Text, [ref]$version)) {
+        return $version
+    }
+    return $null
+}
+
 function Invoke-Robocopy([string]$Source, [string]$Destination, [string[]]$Options) {
     $arguments = @($Source.TrimEnd('\'), $Destination.TrimEnd('\')) + $Options + @('/R:2', '/W:1', '/NP', '/NFL', '/NDL', '/NJH', '/NJS')
     $result = Invoke-Native 'robocopy.exe' $arguments
@@ -196,6 +204,30 @@ function Save-VerifiedFile([string[]]$Urls, [string]$Destination, [string]$Sha25
         Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue
     }
     throw "$(Split-Path -Leaf $Destination) を取得できませんでした。"
+}
+
+# $Release（File、Sha256、Urls）の配布物を、公開されている SHA-256 と照合して用意する。
+# $Given（-PhpZip などで指定されたファイル）、このスクリプトと同じフォルダにあるファイル、$DownloadDir へのダウンロードの順に探し、
+# どれも使えなければ $Failure を投げる。
+function Get-ReleaseFile([string]$Given, [hashtable]$Release, [string]$DownloadDir, [string]$Failure) {
+    if ($Given) {
+        $path = (Resolve-Path -LiteralPath $Given).Path
+        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $Release.Sha256) {
+            throw "SHA-256 が公開値と一致しません: $path"
+        }
+        return $path
+    }
+    $local = Join-Path $PSScriptRoot $Release.File
+    if ((Test-Path -LiteralPath $local) -and (Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash -eq $Release.Sha256) {
+        return $local
+    }
+    $dest = Join-Path $DownloadDir $Release.File
+    try {
+        Save-VerifiedFile $Release.Urls $dest $Release.Sha256
+    } catch {
+        throw $Failure
+    }
+    return $dest
 }
 
 function Test-ApacheConfig([string]$Root) {
