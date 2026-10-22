@@ -7,6 +7,7 @@
 ・PHP 8.2.35（php.net 公式の Windows 版。CVE-2026-109618 / CVE-2026-109619 を修正）
 ・XAMPP コントロールパネル、ダッシュボードなど XAMPP 8.2.12 の基本部分
 ・MariaDB 11.4.13（長期サポート版。2029 年 5 月までサポート）、phpMyAdmin 5.2.3（選んだ場合）
+・PEAR の Archive_Tar 1.6.0 と、PHP が証明書の検証に使う CA バンドル（2026-10-20 版）
 
 ■ 入らないもの
 Perl、Tomcat、FileZilla Server、Mercury Mail、Webalizer、fake sendmail は、サポートが終わっているか古いため入れません。PHP の enchant 拡張も入りません。

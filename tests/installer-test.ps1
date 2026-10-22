@@ -5,7 +5,8 @@
 .DESCRIPTION
     1. セットアップを /VERYSILENT で確認用のフォルダ（既定は work\installtest\xampp）にインストールする
        （MariaDB と phpMyAdmin を含む「すべて」。スタートメニューとデスクトップのアイコンは作らない）
-    2. 入るべきもの・入らないもの、設定ファイルのパスの書き換え、HTTPS 用の証明書（その PC だけの鍵）を確かめる
+    2. 入るべきもの・入らないもの、設定ファイルのパスの書き換え、HTTPS 用の証明書（その PC だけの鍵）、
+       Archive_Tar と CA バンドルの版を確かめる
     3. tests\smoke-test.ps1 -XamppDir で Apache を一時的に起動して確かめる
     4. アンインストールし、インストールしたファイルが消え、MySQL のデータが残ることを確かめる
 
@@ -18,6 +19,8 @@ param(
     [string]$InstallDir,
     [string]$ExpectedVersion = '8.2.35',
     [string]$ExpectedApacheVersion = '2.4.69',
+    [string]$ExpectedArchiveTarVersion = '1.6.0',
+    [string]$ExpectedCaBundleSha256 = '796F1389BFEA13C0ED78F663B765BAAFF54A508E5483786BD6ECE73C5E3E3CBE',
     [switch]$Keep
 )
 
@@ -90,6 +93,15 @@ try {
     $phpVersion = (Get-Item -LiteralPath (Join-Path $InstallDir 'php\php8ts.dll')).VersionInfo.ProductVersion.Trim()
     $apacheVersion = ((Get-Item -LiteralPath (Join-Path $InstallDir 'apache\bin\httpd.exe')).VersionInfo.FileVersion -split ' ')[0]
     Add-Result 'バージョン' (($phpVersion -eq $ExpectedVersion) -and ($apacheVersion -eq $ExpectedApacheVersion)) "PHP $phpVersion、Apache $apacheVersion"
+
+    $tarVersion = ''
+    $registry = Join-Path $InstallDir 'php\pear\.registry\archive_tar.reg'
+    if ((Test-Path -LiteralPath $registry) -and ([IO.File]::ReadAllText($registry) -match 's:7:"version";a:2:\{s:7:"release";s:\d+:"([^"]+)"')) {
+        $tarVersion = $Matches[1]
+    }
+    $caBundle = Join-Path $InstallDir 'apache\bin\curl-ca-bundle.crt'
+    $caOk = (Test-Path -LiteralPath $caBundle) -and (Get-FileHash -LiteralPath $caBundle -Algorithm SHA256).Hash -eq $ExpectedCaBundleSha256
+    Add-Result 'Archive_Tar と CA バンドル' (($tarVersion -eq $ExpectedArchiveTarVersion) -and $caOk) "Archive_Tar $tarVersion、CA バンドルが新しいもの: $caOk"
 
     $slash = $InstallDir -replace '\\', '/'
     $relocated = (Select-String -LiteralPath (Join-Path $InstallDir 'apache\conf\extra\httpd-xampp.conf') -SimpleMatch "$slash/php/php8ts.dll" -Quiet) -and

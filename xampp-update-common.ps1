@@ -115,7 +115,8 @@ function Assert-NotRunning([string]$Root, [bool]$Force, [string[]]$Names = $Apac
     Write-Note '-Force が指定されているため続行します。'
 }
 
-# zip を展開する。Windows 10 以降の tar.exe のほうが Expand-Archive よりずっと速いので、あれば使う。
+# zip（と tgz）を展開する。Windows 10 以降の tar.exe のほうが Expand-Archive よりずっと速いので、あれば使う
+# （tar.exe がない場合の Expand-Archive は zip だけ）。
 function Expand-ZipFile([string]$Zip, [string]$Destination) {
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
     $tar = Join-Path (Get-SystemDir) 'tar.exe'

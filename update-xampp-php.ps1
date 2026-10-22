@@ -10,15 +10,22 @@
     apache\bin にもコピーしています。このコピーを新しい PHP のものに更新し、新しい PHP で増えた依存 DLL
     （PHP 8.2.35 の curl 拡張が使う brotlidec.dll など）を apache\bin に追加します。
 
+    あわせて、XAMPP に同梱の古いものを 2 つ更新します。
+      - PEAR の Archive_Tar（php\pear）を 1.6.0 にする。XAMPP 8.2.12 の 1.4.0 には CVE-2020-36193 などの脆弱性がある
+      - PHP が外部サイトの証明書の検証に使う CA バンドル（apache\bin\curl-ca-bundle.crt）を、curl.se の新しいものにする。
+        XAMPP の元のものから変わっている（自分で CA を足した）場合は置き換えない
+
       1. XAMPP のフォルダと、いまの PHP のバージョンを確認する
       2. Apache や PHP が動いていないことを確認する
-      3. 公式の zip を用意して SHA-256 を照合する
+      3. 公式の zip などを用意して SHA-256 を照合する
       4. php フォルダをバックアップする（php_backup_<元のバージョン>_<日時>）
       5. 新しい PHP を上書きし、apache\bin の依存 DLL をそろえる
-      6. php.ini の session.upload_progress.enabled を Off にする（-NoHarden で省略）
-      7. php.exe と httpd.exe -t で起動できることを確認する
+      6. Archive_Tar と CA バンドルを更新する
+      7. php.ini の session.upload_progress.enabled を Off にする（-NoHarden で省略）
+      8. php.exe と httpd.exe -t で起動できることを確認する
 
-    PHP がすでに 8.2.35 の場合は、apache\bin に足りない依存 DLL があれば追加だけを行います。
+    PHP がすでに 8.2.35 の場合は、apache\bin に足りない依存 DLL の追加と、Archive_Tar・CA バンドルの更新だけを
+    （必要なときに、php フォルダをバックアップしてから）行います。
 
 .PARAMETER XamppDir
     XAMPP のフォルダ。省略すると C:\xampp を使い、なければ各ドライブ直下の \xampp を探します。
@@ -33,7 +40,7 @@
     php.ini を変更しません。
 
 .PARAMETER Restore
-    いちばん新しいバックアップに戻します（apache\bin で更新・追加した DLL も戻します）。
+    いちばん新しいバックアップに戻します（apache\bin で更新・追加した DLL と CA バンドルも戻します）。
 
 .PARAMETER Yes
     確認の問い合わせを省略します。
@@ -87,8 +94,60 @@ $Release = @{
     Fixes   = 'CVE-2026-109618, CVE-2026-109619'
 }
 $VcRedistUrl = 'https://aka.ms/vc14/vc_redist.x64.exe'
-# バックアップの中で、apache\bin から退避した DLL と追加した DLL の一覧を置くフォルダ
+# バックアップの中で、apache\bin から退避したファイルと追加した DLL の一覧を置くフォルダ
 $ApacheBackupName = '_apache_bin'
+
+# XAMPP の PEAR（php\pear。PHP の include_path に入っている）の Archive_Tar。SHA-256 は pear.php.net の配布物から求めた値
+# （中の Tar.php は GitHub の pear/Archive_Tar のタグ 1.6.0 と同じで、配布物の package.xml の MD5 とも一致する）。
+$ArchiveTar = @{
+    Version = '1.6.0'
+    Date    = '2025-07-19'
+    Time    = '14:50:47'
+    File    = 'Archive_Tar-1.6.0.tgz'
+    Sha256  = 'F856095F64BB3FFA44F870202FFCA8F4E6ECEEF3CB74674F12BE3362FAAFA7D3'
+    Urls    = @('https://download.pear.php.net/package/Archive_Tar-1.6.0.tgz')
+}
+# php.ini の curl.cainfo と openssl.cafile が指す CA バンドル。curl.se が Mozilla のデータから作っているもので、
+# SHA-256 は curl.se が公開している値。Original は XAMPP 8.2.12 に同梱の 2022-04-26 版の SHA-256（これだけを置き換える）。
+$CaBundle = @{
+    Version  = '2026-10-20'
+    File     = 'cacert-2026-10-20.pem'
+    Sha256   = '796F1389BFEA13C0ED78F663B765BAAFF54A508E5483786BD6ECE73C5E3E3CBE'
+    Urls     = @('https://curl.se/ca/cacert-2026-10-20.pem')
+    Name     = 'curl-ca-bundle.crt'
+    Original = '08DF40E8F528ED283B0E480BA4BCDBFDD2FDCF695A7ADA1668243072D80F8B6F'
+}
+# PEAR の登録情報（php\pear\.registry\*.reg。PHP の serialize 形式）のバージョン、日時、ファイルの MD5 を書き換える PHP のコード
+$RegistryHelper = @'
+<?php
+// php -n update-registry.php <registry> <version> <date> <time> <name in package> <installed file>
+[, $reg, $version, $date, $time, $name, $file] = $argv;
+$data = unserialize(file_get_contents($reg));
+if (!is_array($data)) {
+    fwrite(STDERR, "cannot read $reg\n");
+    exit(1);
+}
+$md5 = md5_file($file);
+$data['version'] = ['release' => $version, 'api' => $version];
+$data['date'] = $date;
+$data['time'] = $time;
+if (isset($data['filelist'][$name])) {
+    $data['filelist'][$name]['md5sum'] = $md5;
+}
+$list = $data['contents']['dir']['file'] ?? null;
+if (is_array($list)) {
+    $single = isset($list['attribs']);
+    $items = $single ? [$list] : $list;
+    foreach ($items as $i => $item) {
+        if (($item['attribs']['name'] ?? '') === $name) {
+            $items[$i]['attribs']['md5sum'] = $md5;
+        }
+    }
+    $data['contents']['dir']['file'] = $single ? $items[0] : $items;
+}
+$data['_lastmodified'] = time();
+file_put_contents($reg, serialize($data));
+'@
 
 function Get-PhpVersion([string]$PhpDir) {
     $dll = Join-Path $PhpDir 'php8ts.dll'
@@ -186,6 +245,13 @@ function Restore-ApacheBin([string]$Root, [string]$Backup, [string]$ReplacedPhpD
             Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $apacheBin $file.Name) -Force
         }
     }
+    # CA バンドルは、入れ替えたときのまま（そのあと変更されていない）なら戻す
+    $savedCa = Join-Path $saved $CaBundle.Name
+    $currentCa = Join-Path $apacheBin $CaBundle.Name
+    if ((Test-Path -LiteralPath $savedCa) -and (Test-Path -LiteralPath $currentCa) -and
+        (Get-FileHash -LiteralPath $currentCa -Algorithm SHA256).Hash -eq $CaBundle.Sha256) {
+        Copy-Item -LiteralPath $savedCa -Destination $currentCa -Force
+    }
     Remove-Item -LiteralPath $saved -Recurse -Force
 }
 
@@ -268,39 +334,206 @@ function Set-UploadProgressOff([string]$IniPath) {
     return $true
 }
 
-# PHP がすでに新しい場合は、apache\bin に足りない依存 DLL だけを補う
-function Invoke-DependencyRepair([string]$Root, [string]$Current) {
+# php\pear の Archive_Tar のバージョン（PEAR の登録情報から読む）。入っていなければ $null
+function Get-ArchiveTarVersion([string]$PhpDir) {
+    $reg = Join-Path $PhpDir 'pear\.registry\archive_tar.reg'
+    if (-not (Test-Path -LiteralPath (Join-Path $PhpDir 'pear\Archive\Tar.php')) -or -not (Test-Path -LiteralPath $reg)) {
+        return $null
+    }
+    if ([IO.File]::ReadAllText($reg) -match 's:7:"version";a:2:\{s:7:"release";s:\d+:"([^"]+)"') {
+        return $Matches[1]
+    }
+    return $null
+}
+
+# Archive_Tar を $Tgz（pear.php.net の配布物）の Tar.php に入れ替え、PEAR の登録情報のバージョンと MD5 を書き換える
+function Update-ArchiveTar([string]$PhpDir, [string]$Tgz) {
+    $work = Join-Path ([IO.Path]::GetTempPath()) ('xampp-archive-tar-' + [guid]::NewGuid().ToString('N'))
+    try {
+        Expand-ZipFile $Tgz $work
+        $source = Join-Path $work "Archive_Tar-$($ArchiveTar.Version)\Archive\Tar.php"
+        if (-not (Test-Path -LiteralPath $source)) {
+            throw "$($ArchiveTar.File) の中身が想定と違います。"
+        }
+        $target = Join-Path $PhpDir 'pear\Archive\Tar.php'
+        Copy-Item -LiteralPath $source -Destination $target -Force
+        $helper = Join-Path $work 'update-registry.php'
+        Set-Content -LiteralPath $helper -Encoding Ascii -Value $RegistryHelper
+        $result = Invoke-Native (Join-Path $PhpDir 'php.exe') @('-n', $helper, (Join-Path $PhpDir 'pear\.registry\archive_tar.reg'),
+            $ArchiveTar.Version, $ArchiveTar.Date, $ArchiveTar.Time, 'Archive/Tar.php', $target)
+        if ($result.ExitCode -ne 0) {
+            throw "PEAR の登録情報を書き換えられませんでした: $($result.Output.Trim())"
+        }
+    } finally {
+        Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# CA バンドルの状態。current（新しいもの）、original（XAMPP の元のもの）、custom（変更されている）、$null（ない）
+function Get-CaBundleState([string]$Root) {
+    $path = Join-Path $Root "apache\bin\$($CaBundle.Name)"
+    if (-not (Test-Path -LiteralPath $path)) {
+        return $null
+    }
+    $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+    if ($hash -eq $CaBundle.Sha256) {
+        return 'current'
+    }
+    if ($hash -eq $CaBundle.Original) {
+        return 'original'
+    }
+    return 'custom'
+}
+
+# CA バンドルを $Pem にする。$Backup を渡すと、元のものをバックアップの中の apache\bin の退避先に残す。
+function Update-CaBundle([string]$Root, [string]$Pem, [string]$Backup) {
+    $target = Join-Path $Root "apache\bin\$($CaBundle.Name)"
+    if ($Backup) {
+        $saved = Join-Path $Backup $ApacheBackupName
+        New-Item -ItemType Directory -Force -Path $saved | Out-Null
+        Copy-Item -LiteralPath $target -Destination (Join-Path $saved $CaBundle.Name) -Force
+    }
+    Copy-Item -LiteralPath $Pem -Destination $target -Force
+}
+
+# Archive_Tar と CA バンドルのうち、更新が必要なもの
+function Get-ExtraNeed([string]$Root) {
+    $from = Get-ArchiveTarVersion (Join-Path $Root 'php')
+    $version = ConvertTo-Version $from
+    $state = Get-CaBundleState $Root
+    if ($state -eq 'custom') {
+        Write-Note "apache\bin\$($CaBundle.Name) が XAMPP の元のものから変わっているため、CA バンドルは置き換えません。"
+    }
+    return [pscustomobject]@{
+        ArchiveTarFrom = $(if ($version -and $version -lt [version]$ArchiveTar.Version) { $from } else { $null })
+        CaBundle       = ($state -eq 'original')
+    }
+}
+
+# 更新が必要な Archive_Tar と CA バンドルの配布物を用意する。取得できなかったものは、
+# 組み立て中（-Staging）でなければ注意を出して飛ばす（あとでもう一度実行すると更新する）。
+function Save-ExtraFile($Need) {
+    $files = [pscustomobject]@{ ArchiveTar = $null; ArchiveTarFrom = $Need.ArchiveTarFrom; CaBundle = $null }
+    if (-not $Need.ArchiveTarFrom -and -not $Need.CaBundle) {
+        return $files
+    }
+    Write-Step 'PEAR の Archive_Tar と CA バンドルを用意'
+    $hint = 'を入手し、このスクリプトと同じフォルダに置いてから、もう一度実行してください。'
+    if ($Need.ArchiveTarFrom) {
+        try {
+            $files.ArchiveTar = Get-ReleaseFile $null $ArchiveTar $DownloadDir "PEAR の Archive_Tar を取得できなかったため、更新しません。$($ArchiveTar.File) $hint"
+            Write-Info "SHA-256 一致: $($files.ArchiveTar)"
+        } catch {
+            if ($Staging) {
+                throw
+            }
+            Write-Note $_.Exception.Message
+        }
+    }
+    if ($Need.CaBundle) {
+        try {
+            $files.CaBundle = Get-ReleaseFile $null $CaBundle $DownloadDir "CA バンドルを取得できなかったため、更新しません。$($CaBundle.File) $hint"
+            Write-Info "SHA-256 一致: $($files.CaBundle)"
+        } catch {
+            if ($Staging) {
+                throw
+            }
+            Write-Note $_.Exception.Message
+        }
+    }
+    return $files
+}
+
+function Install-ExtraUpdate([string]$Root, $Files, [string]$Backup) {
+    $phpDir = Join-Path $Root 'php'
+    if ($Files.ArchiveTar) {
+        Write-Step "PEAR の Archive_Tar を $($ArchiveTar.Version) に更新"
+        Update-ArchiveTar $phpDir $Files.ArchiveTar
+        Write-Info "Archive_Tar: $($Files.ArchiveTarFrom) -> $(Get-ArchiveTarVersion $phpDir)"
+    }
+    if ($Files.CaBundle) {
+        Write-Step "CA バンドルを $($CaBundle.Version) 版に更新"
+        Update-CaBundle $Root $Files.CaBundle $Backup
+        Write-Info "apache\bin\$($CaBundle.Name)"
+    }
+}
+
+# PHP がすでに新しい場合は、apache\bin に足りない依存 DLL の追加と、Archive_Tar・CA バンドルの更新だけを行う
+function Invoke-Repair([string]$Root, [string]$Current) {
     Write-Host ''
     Write-Host "PHP はすでに $Current です。" -ForegroundColor Green
+    $phpDir = Join-Path $Root 'php'
     $missing = Find-ApacheMissingDependency $Root
     foreach ($item in $missing.Unresolved) {
         Write-Note "見つからない DLL: $item"
     }
-    if (@($missing.Add).Count -eq 0) {
+    $need = Get-ExtraNeed $Root
+    if (@($missing.Add).Count -eq 0 -and -not $need.ArchiveTarFrom -and -not $need.CaBundle) {
         Write-Host '更新の必要はありません。'
         return $null
     }
-    Write-Note ('Apache から読み込めない DLL があります: {0}' -f ($missing.Add -join ', '))
+    if (@($missing.Add).Count -gt 0) {
+        Write-Note ('Apache から読み込めない DLL があります: {0}' -f ($missing.Add -join ', '))
+    }
+    if ($need.ArchiveTarFrom) {
+        Write-Note "PEAR の Archive_Tar が $($need.ArchiveTarFrom) です（$($ArchiveTar.Version) で脆弱性が修正されています）。"
+    }
+    if ($need.CaBundle) {
+        Write-Note "CA バンドル（apache\bin\$($CaBundle.Name)）が、XAMPP 8.2.12 に同梱の古いものです。"
+    }
     if (-not $Staging) {
         Write-Step 'Apache / PHP が止まっていることを確認'
         Assert-NotRunning $Root $Force
-        Confirm-Continue 'php フォルダから apache\bin に、足りない DLL をコピーします。よろしいですか？' $Yes
+        Confirm-Continue '足りない DLL を補い、Archive_Tar と CA バンドルを更新します。よろしいですか？' $Yes
     }
-    Write-Step 'Apache から読み込む DLL をそろえる（apache\bin）'
-    $sync = Sync-ApacheBin $Root @() $null
-    Write-ApacheBinChange $sync
+    $files = Save-ExtraFile $need
+    if (@($missing.Add).Count -eq 0 -and -not $files.ArchiveTar -and -not $files.CaBundle) {
+        Write-Host ''
+        Write-Host '更新できるものはありませんでした。' -ForegroundColor Yellow
+        return $null
+    }
+
+    $backup = $null
+    if (-not $Staging) {
+        Write-Step 'php フォルダをバックアップ'
+        $backup = Join-Path $Root ('php_backup_{0}_{1}' -f $Current, (Get-Date -Format 'yyyyMMdd-HHmmss'))
+        Invoke-Robocopy $phpDir $backup @('/E', '/COPY:DAT', '/DCOPY:T')
+        Write-Info $backup
+    }
+    $sync = $null
+    try {
+        if (@($missing.Add).Count -gt 0) {
+            Write-Step 'Apache から読み込む DLL をそろえる（apache\bin）'
+            $sync = Sync-ApacheBin $Root @() $backup
+            Write-ApacheBinChange $sync
+        }
+        Install-ExtraUpdate $Root $files $backup
+    } catch {
+        if ($backup) {
+            Write-Note '途中で失敗したため、バックアップから元に戻します。'
+            Restore-ApacheBin $Root $backup
+            Invoke-Robocopy $backup $phpDir @('/MIR', '/COPY:DAT')
+        }
+        throw
+    }
+
     Write-Host ''
     Write-Host '完了しました。XAMPP コントロールパネルで Apache を Start してください。' -ForegroundColor Green
+    if ($backup) {
+        Write-Host "バックアップ: $backup（動作に問題がなければ削除してかまいません）"
+    }
     return [pscustomobject]@{
         XamppDir      = $Root
         FromVersion   = $Current
         ToVersion     = $Current
         PhpZip        = $null
-        Backup        = $null
+        Backup        = $backup
         ApacheUpdated = @()
-        ApacheAdded   = $sync.Added
+        ApacheAdded   = @(if ($sync) { $sync.Added })
         Hardened      = @()
-        Problems      = @($sync.Unresolved | ForEach-Object { "見つからない DLL: $_" })
+        ArchiveTar    = $(if ($files.ArchiveTar) { $ArchiveTar.Version } else { $null })
+        CaBundle      = $(if ($files.CaBundle) { $CaBundle.Version } else { $null })
+        Problems      = @(if ($sync) { $sync.Unresolved | ForEach-Object { "見つからない DLL: $_" } })
     }
 }
 
@@ -324,7 +557,7 @@ function Invoke-Update {
         }
         Write-Note 'バージョン系列が違いますが、-Force が指定されているため続行します。'
     } elseif ($currentVersion -ge $targetVersion -and -not $Force) {
-        return Invoke-DependencyRepair $root $current
+        return Invoke-Repair $root $current
     }
 
     $apacheBefore = $null
@@ -338,6 +571,7 @@ function Invoke-Update {
     Write-Step '公式の PHP を用意'
     $zip = Get-ReleaseFile $PhpZip $Release $DownloadDir "公式の PHP を取得できませんでした。php.net から $($Release.File) を入手し、-PhpZip で指定してください。"
     Write-Info "SHA-256 一致: $zip"
+    $extra = Save-ExtraFile (Get-ExtraNeed $root)
 
     $backup = $null
     $sync = $null
@@ -370,6 +604,8 @@ function Invoke-Update {
             Write-Step 'Apache から読み込む DLL をそろえる（apache\bin）'
             $sync = Sync-ApacheBin $root $copies $backup
             Write-ApacheBinChange $sync
+
+            Install-ExtraUpdate $root $extra $backup
         } catch {
             if ($backup) {
                 Write-Note '途中で失敗したため、バックアップから元に戻します。'
@@ -456,6 +692,8 @@ function Invoke-Update {
         ApacheUpdated = $sync.Updated
         ApacheAdded   = $sync.Added
         Hardened      = $hardened
+        ArchiveTar    = $(if ($extra.ArchiveTar) { $ArchiveTar.Version } else { $null })
+        CaBundle      = $(if ($extra.CaBundle) { $CaBundle.Version } else { $null })
         Problems      = $problems
     }
 }

@@ -16,6 +16,7 @@
        - multipart/form-data のファイルアップロード
        - memory_limit を超えるスクリプトのあとも、上限が効いていて Apache が応答し続けるか
        - memory_limit の 3 倍を 1 回で確保するスクリプトのあとも、Apache が応答し続けるか
+       - PEAR の Archive_Tar の版と、Apache の中の PHP から tar.gz を作って展開できるか、CA バンドルの版
        - MariaDB のバージョン、移行したデータ、PHP（mysqli）からの読み書き、phpMyAdmin の画面
     4. Apache と MariaDB を止める。-ApplyUpdate を付けたときは、update-xampp.bat -Restore で更新と逆の順に戻り、
        php、apache、mysql、phpMyAdmin の各フォルダが更新前と同じになるかも確かめる
@@ -42,6 +43,8 @@ param(
     [string]$ExpectedApacheVersion = '2.4.69',
     [string]$ExpectedMariaDbVersion = '11.4.13',
     [string]$ExpectedPhpMyAdminVersion = '5.2.3',
+    [string]$ExpectedArchiveTarVersion = '1.6.0',
+    [string]$ExpectedCaBundleSha256 = '796F1389BFEA13C0ED78F663B765BAAFF54A508E5483786BD6ECE73C5E3E3CBE',
     [int]$Port = 8080,
     [int]$SslPort = 8443,
     [string]$WorkDir,
@@ -214,7 +217,8 @@ function Get-Snapshot([string]$Root) {
         }
     }
     foreach ($item in 'apache\conf\ssl.crt\server.crt', 'apache\conf\ssl.key\server.key', 'apache\LICENSE.txt', 'php\php8ts.dll', 'php\php.ini',
-        'php\ext\php_curl.dll', 'phpMyAdmin\libraries\classes\Version.php', 'phpMyAdmin\config.inc.php', 'phpMyAdmin\index.php') {
+        'php\ext\php_curl.dll', 'php\pear\Archive\Tar.php', 'php\pear\.registry\archive_tar.reg',
+        'phpMyAdmin\libraries\classes\Version.php', 'phpMyAdmin\config.inc.php', 'phpMyAdmin\index.php') {
         $path = Join-Path $Root $item
         if (Test-Path -LiteralPath $path) {
             & $add $path
@@ -381,6 +385,31 @@ $db->query("INSERT INTO smoke_php (name) VALUES ('from php')");
 $count = $db->query('SELECT COUNT(*) FROM smoke_php')->fetch_row()[0];
 echo json_encode(array('server' => $db->server_info, 'rows' => (int) $count));
 '@
+    # php.ini の include_path にある PEAR の Archive_Tar で、tar.gz を作って展開する（警告などは notices に集める）
+    Set-Content -LiteralPath (Join-Path $htdocs '__pear.php') -Encoding Ascii -Value @'
+<?php
+$notices = array();
+set_error_handler(function ($no, $message) use (&$notices) {
+    $notices[] = $message;
+    return true;
+});
+require_once 'Archive/Tar.php';
+$dir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('smoke_pear_');
+mkdir($dir);
+file_put_contents($dir . '/hello.txt', 'hello archive');
+$tarFile = $dir . '/test.tar.gz';
+$created = (new Archive_Tar($tarFile, 'gz'))->createModify(array($dir . '/hello.txt'), '', $dir);
+mkdir($dir . '/out');
+$extracted = (new Archive_Tar($tarFile))->extract($dir . '/out');
+$ok = $created && $extracted && @file_get_contents($dir . '/out/hello.txt') === 'hello archive';
+@unlink($dir . '/out/hello.txt');
+@rmdir($dir . '/out');
+@unlink($tarFile);
+@unlink($dir . '/hello.txt');
+@rmdir($dir);
+header('Content-Type: application/json');
+echo json_encode(array('ok' => $ok, 'notices' => $notices));
+'@
 
     Write-Host '==> Apache を起動'
     $httpd = Start-Process -FilePath (Join-Path $root 'apache\bin\httpd.exe') -WorkingDirectory $root -WindowStyle Hidden -PassThru
@@ -432,6 +461,35 @@ echo json_encode(array('server' => $db->server_info, 'rows' => (int) $count));
         $cryptoDetail = '{0}（{1}）' -f $crypto[0].FileName, $crypto[0].FileVersionInfo.FileVersion
     }
     Add-Result 'Apache の中で使われる libcrypto（参考）' $true $cryptoDetail
+
+    $tarVersion = ''
+    $registry = Join-Path $root 'php\pear\.registry\archive_tar.reg'
+    if ((Test-Path -LiteralPath $registry) -and ([IO.File]::ReadAllText($registry) -match 's:7:"version";a:2:\{s:7:"release";s:\d+:"([^"]+)"')) {
+        $tarVersion = $Matches[1]
+    }
+    $pear = Invoke-Http "http://127.0.0.1:$Port/__pear.php" @()
+    $pearOk = $false
+    $pearDetail = "登録情報の版 $tarVersion、HTTP $($pear.Status) $($pear.Body)"
+    if ($pear.Status -eq '200' -and $pear.Body.TrimStart().StartsWith('{')) {
+        $pearInfo = $pear.Body | ConvertFrom-Json
+        $pearOk = [bool]$pearInfo.ok
+        $pearDetail = '登録情報の版 {0}、tar.gz の作成と展開: {1}、PHP の警告など {2} 件' -f $tarVersion, $pearOk, @($pearInfo.notices).Count
+        if (@($pearInfo.notices).Count -gt 0) {
+            $pearDetail += "（$(@($pearInfo.notices)[0])）"
+        }
+    }
+    Add-Result 'PEAR の Archive_Tar' (($tarVersion -eq $ExpectedArchiveTarVersion) -and $pearOk) $pearDetail
+
+    $caBundle = Join-Path $root 'apache\bin\curl-ca-bundle.crt'
+    $caOk = $false
+    $caDetail = 'ありません'
+    if (Test-Path -LiteralPath $caBundle) {
+        $caText = [IO.File]::ReadAllText($caBundle)
+        $caDate = if ($caText -match 'as of:\s*([^\r\n]+)') { $Matches[1].Trim() } else { '?' }
+        $caOk = (Get-FileHash -LiteralPath $caBundle -Algorithm SHA256).Hash -eq $ExpectedCaBundleSha256
+        $caDetail = 'Mozilla のデータ {0}、証明書 {1} 件、SHA-256 一致: {2}' -f $caDate, ([regex]::Matches($caText, 'BEGIN CERTIFICATE')).Count, $caOk
+    }
+    Add-Result 'CA バンドル（php.ini の curl.cainfo）' $caOk $caDetail
 
     $loaded = @($info.extensions | ForEach-Object { ([string]$_).ToLowerInvariant() })
     $wanted = @()

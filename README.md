@@ -8,6 +8,8 @@ XAMPP for Windows 8.2.12 の PHP、Apache、MariaDB、phpMyAdmin を、脆弱性
 | Apache | 2.4.58（OpenSSL 3.1.3） | 2.4.69（OpenSSL 3.5.9） | 2.4.59〜2.4.69 で修正された 72 件の脆弱性、OpenSSL 3.1 のサポート終了 |
 | MariaDB | 10.4.32 | 11.4.13 | 10.4 のサポート終了（2024 年 6 月）。11.4 は長期サポート版（2029 年 5 月まで） |
 | phpMyAdmin | 5.2.1 | 5.2.3 | 5.2.2 で修正された XSS などの脆弱性（PMASA-2025-1〜3） |
+| PEAR の Archive_Tar | 1.4.0 | 1.6.0 | CVE-2020-36193（実際の攻撃が確認されている）などの脆弱性 |
+| CA バンドル（PHP が証明書の検証に使う） | 2022-04-26 版 | 2026-10-20 版 | その後に信頼されなくなったルート証明書が残り、新しいルート証明書がない |
 
 > [!IMPORTANT]
 > Apache Friends（XAMPP の開発元）による公式の配布物ではありません。XAMPP の公式版が更新されるまでのつなぎとしてお使いください。
@@ -30,6 +32,11 @@ XAMPP for Windows 8.2.12 の PHP、Apache、MariaDB、phpMyAdmin を、脆弱性
 
 - XAMPP 8.2.12 の MariaDB 10.4 は、2024 年 6 月にサポートが終わっています。
 - phpMyAdmin 5.2.1 には、5.2.2 で修正された XSS などの脆弱性（PMASA-2025-1〜3）があります。
+
+### PEAR の Archive_Tar と CA バンドル
+
+- XAMPP の PEAR（`php\pear`。PHP の include_path に入っています）の Archive_Tar 1.4.0 には、細工した tar の展開でファイルを書き換えられる脆弱性（CVE-2020-36193、CVE-2021-32610 など）があります。Archive_Tar で信頼できない tar を展開するアプリや、`pear install` を使う場合に影響します。
+- PHP の curl 拡張と openssl 拡張は、外部のサイトにつなぐときの証明書の検証に `apache\bin\curl-ca-bundle.crt` を使います（`php.ini` の `curl.cainfo` と `openssl.cafile`）。XAMPP 8.2.12 のものは 2022 年 4 月の版で、その後に Mozilla が信頼をやめた TrustCor、E-Tugra、Entrust などのルート証明書が残っています。
 
 XAMPP for Windows の最新版は 8.2.12 のままで、修正版はまだ出ていません。
 
@@ -66,8 +73,10 @@ update-xampp.bat -XamppDir D:\tools\xampp
 | `httpd-2.4.69-261002-Win64-VS18.zip` | [Apache Lounge](https://www.apachelounge.com/download/) |
 | `mariadb-11.4.13-winx64.zip` | [MariaDB](https://mariadb.org/download/) |
 | `phpMyAdmin-5.2.3-all-languages.zip` | [phpMyAdmin](https://www.phpmyadmin.net/downloads/) |
+| `Archive_Tar-1.6.0.tgz` | [PEAR](https://pear.php.net/package/Archive_Tar/download) |
+| `cacert-2026-10-20.pem` | [curl.se](https://curl.se/docs/caextract.html) |
 
-公式の zip を手作業で上書きして、すでに PHP 8.2.35 や Apache 2.4.69 にしている場合も、このスクリプトを実行してください。足りない DLL の追加や、弱い証明書の作り直しだけを行います。
+公式の zip を手作業で上書きして、すでに PHP 8.2.35 や Apache 2.4.69 にしている場合や、以前の版のこのスクリプトで更新した場合も、このスクリプトを実行してください。足りない DLL の追加、Archive_Tar と CA バンドルの更新、弱い証明書の作り直しのうち、必要なものだけを行います。
 
 ### PHP の更新で行うこと（update-xampp-php.bat）
 
@@ -75,8 +84,12 @@ update-xampp.bat -XamppDir D:\tools\xampp
 2. XAMPP の `php` フォルダを `php_backup_<元のバージョン>_<日時>` にバックアップします。
 3. 新しい PHP のファイルを `php` フォルダに上書きします。`php.ini`、PEAR など XAMPP 独自のファイルはそのまま残ります。
 4. `apache\bin` の DLL をそろえます。XAMPP は、Apache から PHP の拡張を読み込めるよう、拡張が使う DLL の一部（ICU、libsasl、libssh2）を `apache\bin` にもコピーしています。これらを新しい PHP のものに更新し、新しい PHP で増えた依存 DLL（PHP 8.2.35 の curl 拡張が使う `brotlidec.dll`）を追加します。これをしないと、Apache 上で curl 拡張を読み込めません。
-5. `php.ini` に `session.upload_progress.enabled = Off` を追加します。公式のアドバイザリーは、アップロード進捗の機能を使っていないなら、修正版にしたあとも無効にしておくことを勧めています。使っている場合は `-NoHarden` を付けて実行してください。
-6. `php.exe` と `httpd.exe -t` で、PHP と Apache が起動できることを確かめます。
+5. PEAR の Archive_Tar を 1.6.0 にします（pear.php.net の配布物の SHA-256 を照合し、`Archive\Tar.php` と PEAR の登録情報を書き換えます）。
+6. CA バンドル（`apache\bin\curl-ca-bundle.crt`）を、curl.se が Mozilla のデータから作っている 2026-10-20 版にします（curl.se が公開している SHA-256 と照合します）。XAMPP の元のものから変わっている（自分で CA を足した）場合は置き換えません。
+7. `php.ini` に `session.upload_progress.enabled = Off` を追加します。公式のアドバイザリーは、アップロード進捗の機能を使っていないなら、修正版にしたあとも無効にしておくことを勧めています。使っている場合は `-NoHarden` を付けて実行してください（`update-xampp.bat -NoHarden` でもかまいません）。
+8. `php.exe` と `httpd.exe -t` で、PHP と Apache が起動できることを確かめます。
+
+PHP がすでに 8.2.35 の場合は、4〜6 のうち必要なものだけを、`php` フォルダをバックアップしてから行います。Archive_Tar と CA バンドルを取得できなかった場合は、注意を表示してその 2 つだけを飛ばします（あとでもう一度実行すると更新します）。
 
 ### Apache の更新で行うこと（update-xampp-apache.bat）
 
@@ -112,7 +125,7 @@ Apache と MySQL を止めてから、次のように実行します。更新と
 update-xampp.bat -Restore
 ```
 
-MariaDB を元に戻すと、更新したあとに追加・変更したデータは失われます（入れ替え後の `mysql` フォルダは `mysql_replaced_<日時>` という名前で残します）。PHP と phpMyAdmin も、入れ替え後のフォルダを `php_replaced_<日時>`、`phpMyAdmin_replaced_<日時>` という名前で残します。
+MariaDB を元に戻すと、更新したあとに追加・変更したデータは失われます（入れ替え後の `mysql` フォルダは `mysql_replaced_<日時>` という名前で残します）。PHP と phpMyAdmin も、入れ替え後のフォルダを `php_replaced_<日時>`、`phpMyAdmin_replaced_<日時>` という名前で残します。PHP を戻すと、Archive_Tar と CA バンドルも元に戻ります。
 
 更新を何度か実行してバックアップが複数ある場合は、1 回の `-Restore` で新しいものから 1 つずつ戻ります。さらに古いバックアップが残っているときは、そのことを表示します。
 
@@ -179,7 +192,7 @@ MariaDB を元に戻すと、更新したあとに追加・変更したデータ
 ## ライセンス
 
 - このリポジトリのスクリプトは [BSD 3-Clause License](LICENSE) で公開しています。
-- 更新スクリプトは PHP、Apache、MariaDB、phpMyAdmin のファイルを含まず、実行時にそれぞれの公式の配布元から取得します。
+- 更新スクリプトは PHP、Apache、MariaDB、phpMyAdmin、Archive_Tar、CA バンドルのファイルを含まず、実行時にそれぞれの公式の配布元から取得します。
 - インストーラーと、Releases に置いた Apache Lounge の zip には、次のソフトウェアが含まれます。それぞれのライセンスに従います（インストール先の `licenses` フォルダと、各フォルダ内のライセンス文書も参照してください）。
 
 | ソフトウェア | ライセンス | ソースコード |
@@ -189,6 +202,8 @@ MariaDB を元に戻すと、更新したあとに追加・変更したデータ
 | PHP 8.2.35（php.net の Windows 版） | PHP License（同梱のライブラリは各ライセンス） | [php.net](https://www.php.net/downloads.php) |
 | MariaDB 11.4.13 | GNU GPL v2 | Releases の `mariadb-11.4.13.tar.gz` |
 | phpMyAdmin 5.2.3 | GNU GPL v2 | Releases の `phpMyAdmin-5.2.3-source.tar.xz` |
+| PEAR の Archive_Tar 1.6.0 | BSD License | [pear.php.net](https://pear.php.net/package/Archive_Tar)、[GitHub](https://github.com/pear/Archive_Tar) |
+| CA バンドル（curl.se が Mozilla のデータから作成） | Mozilla Public License 2.0 | [curl.se](https://curl.se/docs/caextract.html)、[Mozilla の certdata.txt](https://hg.mozilla.org/mozilla-central/file/tip/security/nss/lib/ckfw/builtins/certdata.txt) |
 
 PHP の Windows 版に同梱されている LGPL の DLL（enchant 拡張と glib）は、インストーラーに含めていません。
 
