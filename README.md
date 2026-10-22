@@ -159,7 +159,7 @@ MariaDB を元に戻すと、更新したあとに追加・変更したデータ
 | 入らない | Perl、Tomcat、FileZilla Server、Mercury Mail、Webalizer、fake sendmail（サポートが終わっているか古いため）、PHP の enchant 拡張 |
 
 - 既定のインストール先は `C:\xampp` です。空白や日本語を含むフォルダと、すでに XAMPP があるフォルダには入れられません。
-- 管理者権限は必須ではありません。
+- 管理者権限は必須ではありません。自分だけにインストールした場合は、インストール先を、インストールしたユーザー・SYSTEM・Administrators だけが変更できるようにします（`C:\` の直下に作ったフォルダは、既定では同じ PC のほかのユーザーも変更できるため）。すべてのユーザー向けにインストールした場合は、共用を前提に、継承したアクセス権のままにします。
 - HTTPS 用の証明書は、インストールのときにこの PC だけの鍵で作ります。
 - Microsoft Visual C++ 再頒布可能パッケージ（x64）14.51 以上が必要です。入っていない場合は、セットアップがダウンロードページを案内します。
 - セットアップにはコード署名がないため、Windows の SmartScreen の警告が出ることがあります。その場合は、Releases に載せている SHA-256 と照合してから、「詳細情報」→「実行」を選んでください。
@@ -180,7 +180,7 @@ MariaDB を元に戻すと、更新したあとに追加・変更したデータ
 | `build-package.ps1` | 公式の `xampp-windows-x64-8.2.12-0-VS16.zip` を SourceForge から取得し（SHA-256 を照合）、PHP、Apache、MariaDB、phpMyAdmin を更新した一式の zip を `dist` フォルダに作ります（`-PhpOnly` で PHP だけ）。MariaDB のデータの移行では、MariaDB を 127.0.0.1 の空いているポートで一時的に起動します。 |
 | `build-installer.ps1` | `build-package.ps1` の作業フォルダから、Inno Setup（6.3 以降）でインストーラーを作ります。 |
 | `tests\smoke-test.ps1` | XAMPP 一式の zip またはインストール済みのフォルダで、Apache を `127.0.0.1:8080` / `8443` に、MariaDB を 127.0.0.1 の空いているポートに一時的に起動し、PHP、Apache、MariaDB、phpMyAdmin の動作を確かめます。`-ApplyUpdate` では、元の MariaDB にデータを書き込んで強制終了させてから更新スクリプトを適用し、データの移行と、`update-xampp.bat -Restore` で更新前とまったく同じに戻ることも確かめます。 |
-| `tests\installer-test.ps1` | インストーラーを確認用のフォルダにサイレントでインストールし、中身と動作を確かめてからアンインストールします。 |
+| `tests\installer-test.ps1` | インストーラーを確認用のフォルダにサイレントでインストールし、中身、インストール先のアクセス権、動作を確かめてからアンインストールします。 |
 
 ```powershell
 .\build-package.ps1

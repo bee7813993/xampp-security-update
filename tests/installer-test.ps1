@@ -6,7 +6,7 @@
     1. セットアップを /VERYSILENT で確認用のフォルダ（既定は work\installtest\xampp）にインストールする
        （MariaDB と phpMyAdmin を含む「すべて」。スタートメニューとデスクトップのアイコンは作らない）
     2. 入るべきもの・入らないもの、設定ファイルのパスの書き換え、HTTPS 用の証明書（その PC だけの鍵）、
-       Archive_Tar と CA バンドルの版を確かめる
+       Archive_Tar と CA バンドルの版、インストール先のアクセス権（ほかのユーザーが変更できないこと）を確かめる
     3. tests\smoke-test.ps1 -XamppDir で Apache を一時的に起動して確かめる
     4. アンインストールし、インストールしたファイルが消え、MySQL のデータが残ることを確かめる
 
@@ -102,6 +102,28 @@ try {
     $caBundle = Join-Path $InstallDir 'apache\bin\curl-ca-bundle.crt'
     $caOk = (Test-Path -LiteralPath $caBundle) -and (Get-FileHash -LiteralPath $caBundle -Algorithm SHA256).Hash -eq $ExpectedCaBundleSha256
     Add-Result 'Archive_Tar と CA バンドル' (($tarVersion -eq $ExpectedArchiveTarVersion) -and $caOk) "Archive_Tar $tarVersion、CA バンドルが新しいもの: $caOk"
+
+    # 自分だけにインストールしたときは、ほかのユーザー（Authenticated Users、Users）が変更できないこと
+    $me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    # 書き込み系の権限だけ（Modify や FullControl は読み取りも含むので使わない）。0x50000000 は GENERIC_WRITE と GENERIC_ALL
+    $write = [int]([Security.AccessControl.FileSystemRights]'WriteData, AppendData, WriteExtendedAttributes, DeleteSubdirectoriesAndFiles, WriteAttributes, Delete, ChangePermissions, TakeOwnership') -bor 0x50000000
+    $aclProblems = @()
+    foreach ($item in '.', 'php\php8ts.dll', 'apache\bin', 'htdocs\index.php') {
+        $path = Join-Path $InstallDir $item
+        foreach ($rule in (Get-Acl -LiteralPath $path).Access) {
+            $sid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+            if ($rule.AccessControlType -eq 'Allow' -and $sid -in 'S-1-5-11', 'S-1-5-32-545', 'S-1-1-0' -and (([int]$rule.FileSystemRights) -band $write) -ne 0) {
+                $aclProblems += "$item（$($rule.IdentityReference)）"
+            }
+        }
+        $mine = @((Get-Acl -LiteralPath $path).Access | Where-Object {
+            $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $me -and
+            ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::FullControl) -eq [Security.AccessControl.FileSystemRights]::FullControl })
+        if ($mine.Count -eq 0) {
+            $aclProblems += "$item（インストールしたユーザーにフル コントロールがない）"
+        }
+    }
+    Add-Result 'インストール先のアクセス権' ($aclProblems.Count -eq 0) $(if ($aclProblems.Count) { '問題: ' + ($aclProblems -join ', ') } else { 'ほかのユーザーは変更できず、インストールしたユーザーはフル コントロール' })
 
     $slash = $InstallDir -replace '\\', '/'
     $relocated = (Select-String -LiteralPath (Join-Path $InstallDir 'apache\conf\extra\httpd-xampp.conf') -SimpleMatch "$slash/php/php8ts.dll" -Quiet) -and

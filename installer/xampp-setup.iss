@@ -1,4 +1,4 @@
-﻿; XAMPP for Windows 8.2.12 の PHP と Apache を更新したものを入れるインストーラー（非公式）。
+﻿; XAMPP for Windows 8.2.12 の PHP、Apache、MariaDB、phpMyAdmin を更新したものを入れるインストーラー（非公式）。
 ; build-installer.ps1 が ISCC.exe に次の値を渡してコンパイルする。
 ;   StageDir           部品ごとに分けたファイル（core、mariadb、phpmyadmin の各フォルダ）
 ;   AppVersion         表示用のバージョン（例: 8.2.12-php8.2.35-apache2.4.69）
@@ -181,6 +181,20 @@ begin
     ' -keyout "' + App + '\apache\conf\ssl.key\server.key" -out "' + App + '\apache\conf\ssl.crt\server.crt"', App);
 end;
 
+{ インストール先を、インストールしたユーザー・SYSTEM・Administrators だけが変更できるようにする。
+  C:\ の直下に作ったフォルダは、既定では Authenticated Users（ほかのユーザー）も変更でき、
+  XAMPP のプログラムを書き換えられてしまう。子のファイルとフォルダには継承で反映される。 }
+function RestrictAccess(const App: String): Boolean;
+var
+  User: String;
+begin
+  User := GetUserNameString;
+  if GetEnv('USERDOMAIN') <> '' then
+    User := GetEnv('USERDOMAIN') + '\' + User;
+  Result := RunHidden(ExpandConstant('{sys}\icacls.exe'),
+    '"' + App + '" /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "' + User + ':(OI)(CI)F" /Q', App);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   App: String;
@@ -197,6 +211,14 @@ begin
   WizardForm.StatusLabel.Caption := 'HTTPS 用の証明書を作っています...';
   if not CreateCertificate(App) then
     SuppressibleMsgBox('HTTPS 用の証明書を作れませんでした。このままでは Apache が起動しないため、apache\makecert.bat で証明書を作ってください。', mbError, MB_OK, IDOK);
+
+  { すべてのユーザー向けにインストールしたとき（管理者モード）は、共用を前提に、継承したアクセス権のままにする }
+  if not IsAdminInstallMode then
+  begin
+    WizardForm.StatusLabel.Caption := 'インストール先のアクセス権を設定しています...';
+    if not RestrictAccess(App) then
+      SuppressibleMsgBox('インストール先のアクセス権を設定できませんでした。同じ PC のほかのユーザーも、インストール先のファイルを変更できる状態です。', mbInformation, MB_OK, IDOK);
+  end;
 end;
 
 function InitializeUninstall(): Boolean;

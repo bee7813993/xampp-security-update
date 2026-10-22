@@ -15,6 +15,7 @@ Perl、Tomcat、FileZilla Server、Mercury Mail、Webalizer、fake sendmail は�
 ■ 注意
 ・XAMPP は開発用の環境です。MariaDB の root にはパスワードが設定されていません（XAMPP と同じ）。インターネットには公開しないでください。
 ・HTTPS 用の証明書（localhost 用の自己署名証明書）は、インストールのときにこの PC だけの鍵で作ります。
+・自分だけにインストールした場合は、インストール先を、インストールしたユーザー・SYSTEM・Administrators だけが変更できるようにします。
 ・インストール先は、空白や日本語を含まないフォルダにしてください。既に XAMPP があるフォルダには入れられません。既存の XAMPP を更新するときは、配布ページの update-xampp.bat を使ってください。
 ・Microsoft Visual C++ 再頒布可能パッケージ（x64）14.51 以上が必要です。
 
