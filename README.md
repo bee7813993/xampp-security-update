@@ -161,6 +161,10 @@ MariaDB を元に戻すと、更新したあとに追加・変更したデータ
 - 既定のインストール先は `C:\xampp` です。空白や日本語を含むフォルダと、すでに XAMPP があるフォルダには入れられません。
 - 管理者権限は必須ではありません。自分だけにインストールした場合は、インストール先を、インストールしたユーザー・SYSTEM・Administrators だけが変更できるようにします（`C:\` の直下に作ったフォルダは、既定では同じ PC のほかのユーザーも変更できるため）。すべてのユーザー向けにインストールした場合は、共用を前提に、継承したアクセス権のままにします。
 - HTTPS 用の証明書は、インストールのときにこの PC だけの鍵で作ります。
+- 安全のため、XAMPP の初期設定から次の点を変えています。元に戻すときは、`apache\conf\httpd.conf`、`apache\conf\extra\httpd-xampp.conf`、`mysql\bin\my.ini` の「xampp-security-update installer」と書いたコメントの箇所を編集してください。
+  - `/php-cgi/` で `php-cgi.exe` を公開しない（PHP は Apache のモジュールとして動くため不要です）
+  - `/cgi-bin/` と、ダッシュボードの `phpinfo.php` は、この PC からだけ使える
+  - MariaDB は 127.0.0.1 だけで待ち受ける（ほかの PC からは接続できません）
 - Microsoft Visual C++ 再頒布可能パッケージ（x64）14.51 以上が必要です。入っていない場合は、セットアップがダウンロードページを案内します。
 - セットアップにはコード署名がないため、Windows の SmartScreen の警告が出ることがあります。その場合は、Releases に載せている SHA-256 と照合してから、「詳細情報」→「実行」を選んでください。
 
@@ -168,6 +172,7 @@ MariaDB を元に戻すと、更新したあとに追加・変更したデータ
 
 - PHP 8.2 系のサポートは 2026 年 12 月 31 日で終わります。長く使う場合は、より新しい PHP への移行を検討してください。
 - XAMPP は開発用の環境です。MariaDB の root にはパスワードが設定されていません（XAMPP と同じ）。インターネットには公開しないでください。
+- 更新スクリプトは、既存の XAMPP の設定（`/php-cgi/` や `/cgi-bin/` の公開、MariaDB の待ち受けなど）を変えません。ほかの PC から接続できるネットワークで使う場合は、[新しく入れる](#新しく入れる)場合と同じ変更を検討してください。
 - MariaDB 11.4 の `mysql.exe` でパスワードなしの root に接続すると、「--ssl-verify-server-cert is disabled」という警告が出ます。動作に問題はありません。
 - 修正版の PHP では、`memory_limit` を大きく超えるメモリー確保（既定では 2 倍。`memory_limit` が 1GB を超える場合は +1GB）で、エラー処理を待たずにプロセスを終了する仕組みが加わりました。上限は新しい設定 `memory_hard_limit_percent` で変えられます。よく使う関数の大きな確保は通常の Fatal error で止まりますが、この上限に当たった場合、XAMPP（Apache + mod_php）では Apache の子プロセスごと終了し、そのとき処理中だった他のリクエストも切断されます。
 - Apache の中で動く PHP の openssl 拡張と curl 拡張は、`apache\bin` にある Apache 側の OpenSSL を使います。PHP だけを更新した場合、この OpenSSL は 3.1.3 のままです。
@@ -178,7 +183,7 @@ MariaDB を元に戻すと、更新したあとに追加・変更したデータ
 | --- | --- |
 | `update-xampp.ps1` | `update-xampp.bat` の本体です。部品ごとのスクリプトを順に（`-Restore` では逆の順に）実行し、オプションは受け付けるスクリプトにだけ渡します。 |
 | `build-package.ps1` | 公式の `xampp-windows-x64-8.2.12-0-VS16.zip` を SourceForge から取得し（SHA-256 を照合）、PHP、Apache、MariaDB、phpMyAdmin を更新した一式の zip を `dist` フォルダに作ります（`-PhpOnly` で PHP だけ）。MariaDB のデータの移行では、MariaDB を 127.0.0.1 の空いているポートで一時的に起動します。 |
-| `build-installer.ps1` | `build-package.ps1` の作業フォルダから、Inno Setup（6.3 以降）でインストーラーを作ります。 |
+| `build-installer.ps1` | `build-package.ps1` の作業フォルダから、Inno Setup（6.3 以降）でインストーラーを作ります。新しく入れる場合の設定の強化（`/php-cgi/` を公開しないなど）は、このときにインストーラーに入れる設定ファイルだけに加えます。 |
 | `tests\smoke-test.ps1` | XAMPP 一式の zip またはインストール済みのフォルダで、Apache を `127.0.0.1:8080` / `8443` に、MariaDB を 127.0.0.1 の空いているポートに一時的に起動し、PHP、Apache、MariaDB、phpMyAdmin の動作を確かめます。`-ApplyUpdate` では、元の MariaDB にデータを書き込んで強制終了させてから更新スクリプトを適用し、データの移行と、`update-xampp.bat -Restore` で更新前とまったく同じに戻ることも確かめます。 |
 | `tests\installer-test.ps1` | インストーラーを確認用のフォルダにサイレントでインストールし、中身、インストール先のアクセス権、動作を確かめてからアンインストールします。 |
 

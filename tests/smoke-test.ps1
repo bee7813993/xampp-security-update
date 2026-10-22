@@ -22,6 +22,9 @@
        php、apache、mysql、phpMyAdmin の各フォルダが更新前と同じになるかも確かめる
     5. 作業フォルダを片付ける
 
+    -ExpectHardened を付けると、インストーラーで新しく入れた場合の設定の強化（/php-cgi/ を公開しない、phpinfo.php は
+    この PC からなら見られる）も確かめます。
+
     -XamppDir のときは、そのフォルダの httpd.conf、httpd-ssl.conf の待ち受けポートと phpMyAdmin の接続先ポートを
     書き換え、htdocs に確認用のファイルを置きます。確認専用にインストールしたフォルダで使ってください。
 
@@ -48,6 +51,7 @@ param(
     [int]$Port = 8080,
     [int]$SslPort = 8443,
     [string]$WorkDir,
+    [switch]$ExpectHardened,
     [switch]$Keep
 )
 
@@ -531,6 +535,14 @@ echo json_encode(array('ok' => $ok, 'notices' => $notices));
         $secureDetail = 'HTTP 200、$_SERVER[HTTPS]: {0}' -f $secureInfo.https
     }
     Add-Result 'HTTPS' $secureOk $secureDetail
+
+    if ($ExpectHardened) {
+        # インストーラーで新しく入れた場合の設定の強化。php-cgi.exe は公開せず、phpinfo.php はこの PC からなら見られる
+        $phpCgi = Invoke-Http "http://127.0.0.1:$Port/php-cgi/php-cgi.exe" @()
+        Add-Result '/php-cgi/php-cgi.exe を公開しない' ($phpCgi.Status -eq '404') "HTTP $($phpCgi.Status)"
+        $phpInfo = Invoke-Http "http://127.0.0.1:$Port/dashboard/phpinfo.php" @()
+        Add-Result 'phpinfo.php（この PC から）' (($phpInfo.Status -eq '200') -and ($phpInfo.Body -match 'PHP Version')) "HTTP $($phpInfo.Status)"
+    }
 
     $upload = Join-Path $WorkDir 'upload.bin'
     $bytes = New-Object byte[] 262144

@@ -12,6 +12,12 @@
 ■ 入らないもの
 Perl、Tomcat、FileZilla Server、Mercury Mail、Webalizer、fake sendmail は、サポートが終わっているか古いため入れません。PHP の enchant 拡張も入りません。
 
+■ XAMPP の初期設定から変えている点（安全のため）
+・/php-cgi/ で php-cgi.exe を公開しません（PHP は Apache のモジュールとして動くため不要です）。
+・/cgi-bin/ と、ダッシュボードの phpinfo.php は、この PC からだけ使えます。
+・MariaDB は 127.0.0.1 だけで待ち受けます（ほかの PC からは接続できません）。
+元に戻すときは、apache\conf\httpd.conf、apache\conf\extra\httpd-xampp.conf、mysql\bin\my.ini の「xampp-security-update installer」と書いたコメントの箇所を編集してください。
+
 ■ 注意
 ・XAMPP は開発用の環境です。MariaDB の root にはパスワードが設定されていません（XAMPP と同じ）。インターネットには公開しないでください。
 ・HTTPS 用の証明書（localhost 用の自己署名証明書）は、インストールのときにこの PC だけの鍵で作ります。

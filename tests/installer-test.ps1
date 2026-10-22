@@ -5,9 +5,9 @@
 .DESCRIPTION
     1. セットアップを /VERYSILENT で確認用のフォルダ（既定は work\installtest\xampp）にインストールする
        （MariaDB と phpMyAdmin を含む「すべて」。スタートメニューとデスクトップのアイコンは作らない）
-    2. 入るべきもの・入らないもの、設定ファイルのパスの書き換え、HTTPS 用の証明書（その PC だけの鍵）、
+    2. 入るべきもの・入らないもの、設定ファイルのパスの書き換え、設定の強化、HTTPS 用の証明書（その PC だけの鍵）、
        Archive_Tar と CA バンドルの版、インストール先のアクセス権（ほかのユーザーが変更できないこと）を確かめる
-    3. tests\smoke-test.ps1 -XamppDir で Apache を一時的に起動して確かめる
+    3. tests\smoke-test.ps1 -XamppDir -ExpectHardened で Apache を一時的に起動して確かめる
     4. アンインストールし、インストールしたファイルが消え、MySQL のデータが残ることを確かめる
 
 .EXAMPLE
@@ -131,6 +131,23 @@ try {
         (Select-String -LiteralPath (Join-Path $InstallDir 'mysql\bin\my.ini') -SimpleMatch "$slash/mysql/data" -Quiet)
     Add-Result '設定ファイルのパスの書き換え' $relocated $(if ($relocated) { 'httpd-xampp.conf、php.ini、my.ini がインストール先を指している' } else { 'インストール先を指していません' })
 
+    # 新しく入れた場合だけの設定の強化（build-installer.ps1 の Set-InstallerHardening）
+    $xamppConf = [IO.File]::ReadAllText((Join-Path $InstallDir 'apache\conf\extra\httpd-xampp.conf'))
+    $httpdConf = [IO.File]::ReadAllText((Join-Path $InstallDir 'apache\conf\httpd.conf'))
+    $myIni = [IO.File]::ReadAllText((Join-Path $InstallDir 'mysql\bin\my.ini'))
+    $cgiBlock = ''
+    if ($httpdConf -match '(?s)<Directory "[^"]*/cgi-bin">.*?</Directory>') {
+        $cgiBlock = $Matches[0]
+    }
+    $hardening = [ordered]@{
+        '/php-cgi/ を公開しない'                   = $xamppConf -notmatch '(?m)^\s*ScriptAlias\s+/php-cgi/'
+        'phpinfo.php はこの PC からだけ'           = $xamppConf -match '(?s)<Directory "[^"]*/htdocs/dashboard">\s*<Files "phpinfo\.php">\s*Require local'
+        '/cgi-bin/ はこの PC からだけ'             = ($cgiBlock -match '(?m)^\s*Require local\s*$') -and ($cgiBlock -notmatch '(?m)^\s*Require all granted')
+        'MariaDB は 127.0.0.1 だけで待ち受ける'    = $myIni -match '(?m)^bind-address="127\.0\.0\.1"'
+    }
+    $notHardened = @($hardening.Keys | Where-Object { -not $hardening[$_] })
+    Add-Result '設定の強化' ($notHardened.Count -eq 0) $(if ($notHardened.Count) { 'なっていない: ' + ($notHardened -join '、') } else { $hardening.Keys -join '、' })
+
     $cert = Join-Path $InstallDir 'apache\conf\ssl.crt\server.crt'
     $key = Join-Path $InstallDir 'apache\conf\ssl.key\server.key'
     $certOk = $false
@@ -150,7 +167,7 @@ try {
     Add-Result 'アンインストール情報の登録' (Test-Path -LiteralPath $UninstallKey) $UninstallKey
 
     Write-Host '==> tests\smoke-test.ps1 -XamppDir'
-    $smoke = Invoke-Native 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'smoke-test.ps1'), '-XamppDir', $InstallDir)
+    $smoke = Invoke-Native 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'smoke-test.ps1'), '-XamppDir', $InstallDir, '-ExpectHardened')
     $smoke.Output -split "`n" | Where-Object { $_ -match '^\s+\[(OK|NG)\]' } | ForEach-Object { Write-Host "  $_" }
     $summary = @($smoke.Output -split "`n" | Where-Object { $_ -match '項目' } | Select-Object -Last 1)
     Add-Result 'Apache を起動しての確認' ($smoke.ExitCode -eq 0) ([string]($summary -join ''))

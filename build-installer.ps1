@@ -15,6 +15,12 @@
       - PHP に同梱の LGPL の DLL（enchant 拡張と、それが使う glib）
       - HTTPS 用の証明書と秘密鍵（インストールのときに、その PC だけの鍵で作る）
 
+    新しく入れる場合に限り、次の設定を強化します（既存の XAMPP の更新スクリプトでは、設定は変えません）。
+      - /php-cgi/ で php-cgi.exe を公開しない（httpd-xampp.conf の ScriptAlias をコメントにする）
+      - /cgi-bin/ は、この PC からだけ使えるようにする（httpd.conf）
+      - dashboard の phpinfo.php は、この PC からだけ見られるようにする（httpd-xampp.conf）
+      - MariaDB は 127.0.0.1 だけで待ち受ける（my.ini の bind-address）
+
 .PARAMETER Iscc
     Inno Setup の ISCC.exe。省略すると、よくあるインストール先から探します。
 
@@ -71,6 +77,47 @@ function Find-Iscc {
     throw 'Inno Setup の ISCC.exe が見つかりません。-Iscc で指定してください。'
 }
 
+# 設定ファイルの $Pattern を $Replacement（{NL} は改行）に置き換える。1 か所だけ見つからない場合は、
+# XAMPP の設定が想定と違うので止める。文字コードを崩さないよう、1 バイトを 1 文字として扱う Latin-1 で読み書きする。
+function Edit-ConfigOnce([string]$Path, [string]$Pattern, [string]$Replacement, [string]$Label) {
+    $latin1 = [Text.Encoding]::GetEncoding(28591)
+    $text = [IO.File]::ReadAllText($Path, $latin1)
+    $newline = "`n"
+    if ($text.Contains("`r`n")) {
+        $newline = "`r`n"
+    }
+    $count = ([regex]::Matches($text, $Pattern)).Count
+    if ($count -ne 1) {
+        throw "$($Label): 書き換える箇所が $count か所見つかりました（1 か所のはず）: $Path"
+    }
+    [IO.File]::WriteAllText($Path, [regex]::Replace($text, $Pattern, $Replacement.Replace('{NL}', $newline)), $latin1)
+    Write-Info $Label
+}
+
+# 新しく入れる場合だけの設定の強化。パスは XAMPP の書き方（/xampp/...）のままで、インストールのときに install.php が書き換える。
+function Set-InstallerHardening([string]$Parts) {
+    $xamppConf = Join-Path $Parts 'core\apache\conf\extra\httpd-xampp.conf'
+    Edit-ConfigOnce $xamppConf '(?m)^ScriptAlias /php-cgi/ "/xampp/php/"[ \t]*(?=\r?\n)' (
+        '# Disabled by the xampp-security-update installer: PHP runs as mod_php, so php-cgi.exe{NL}' +
+        '# does not need to be reachable over HTTP. Uncomment this only if you switch to PHP-CGI.{NL}' +
+        '#ScriptAlias /php-cgi/ "/xampp/php/"') '/php-cgi/ で php-cgi.exe を公開しない'
+    Edit-ConfigOnce $xamppConf '(<Directory "/xampp/htdocs/xampp">(?:(?!</Directory>)[\s\S])*?</Directory>)' (
+        '$1{NL}{NL}' +
+        '# Added by the xampp-security-update installer: phpinfo.php shows the paths and settings{NL}' +
+        '# of this server, so it is only available from this PC.{NL}' +
+        '<Directory "/xampp/htdocs/dashboard">{NL}' +
+        '    <Files "phpinfo.php">{NL}' +
+        '        Require local{NL}' +
+        '    </Files>{NL}' +
+        '</Directory>') 'dashboard の phpinfo.php は、この PC からだけ見られるようにする'
+    Edit-ConfigOnce (Join-Path $Parts 'core\apache\conf\httpd.conf') '(<Directory "/xampp/cgi-bin">\r?\n(?:(?!</Directory>)[^\n]*\n)*?)([ \t]*)Require all granted' (
+        '$1$2# Changed by the xampp-security-update installer: CGI scripts are only available from this PC.{NL}' +
+        '$2Require local') '/cgi-bin/ は、この PC からだけ使えるようにする'
+    Edit-ConfigOnce (Join-Path $Parts 'mariadb\mysql\bin\my.ini') '(?m)^# bind-address="127\.0\.0\.1"[ \t]*(?=\r?\n)' (
+        '# Enabled by the xampp-security-update installer: accept connections only from this PC.{NL}' +
+        'bind-address="127.0.0.1"') 'MariaDB は 127.0.0.1 だけで待ち受ける'
+}
+
 function Get-VersionText([string]$Path, [int]$Parts) {
     $version = ((Get-Item -LiteralPath $Path).VersionInfo.FileVersion -split ' ')[0].Trim()
     return ($version -split '\.')[0..($Parts - 1)] -join '.'
@@ -111,6 +158,10 @@ try {
         Copy-Item -LiteralPath (Join-Path $stage $name) -Destination (Join-Path $parts 'mariadb') -Force
     }
     Invoke-Robocopy (Join-Path $stage 'phpMyAdmin') (Join-Path $parts 'phpmyadmin\phpMyAdmin') @('/E', '/COPY:DAT')
+
+    Write-Step '新しく入れる場合の設定の強化'
+    Set-InstallerHardening $parts
+
     foreach ($part in 'core', 'mariadb', 'phpmyadmin') {
         $files = @(Get-ChildItem -LiteralPath (Join-Path $parts $part) -File -Recurse)
         Write-Info ('{0,-11} {1,6} ファイル、{2,6:N0} MB' -f $part, $files.Count, (($files | Measure-Object Length -Sum).Sum / 1MB))
