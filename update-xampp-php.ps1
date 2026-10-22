@@ -492,13 +492,11 @@ function Invoke-Update {
 function Invoke-Restore {
     $root = Resolve-XamppDir $XamppDir
     $phpDir = Join-Path $root 'php'
-    $backups = @(
-        Get-ChildItem -LiteralPath $root -Directory -Filter 'php_backup_*' |
-            Where-Object { $_.Name -match '_\d{8}-\d{6}$' } |
-            Sort-Object { $_.Name.Substring($_.Name.Length - 15) } -Descending
-    )
+    $backups = @(Get-BackupFolder $root 'php_backup_')
     if ($backups.Count -eq 0) {
-        throw "バックアップ（php_backup_*）が見つかりません: $root"
+        Write-Host ''
+        Write-Host "PHP のバックアップ（php_backup_*）がないため、何もしません: $root"
+        return
     }
     $backup = $backups[0]
     $backupVersion = Get-PhpVersion $backup.FullName

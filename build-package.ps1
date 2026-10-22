@@ -1,10 +1,12 @@
 ﻿<#
 .SYNOPSIS
-    公式の XAMPP 8.2.12 の PHP と Apache を更新した、XAMPP 一式の zip を作ります（手元で使う用）。
+    公式の XAMPP 8.2.12 の PHP、Apache、MariaDB、phpMyAdmin を更新した、XAMPP 一式の zip を作ります（手元で使う用）。
 
 .DESCRIPTION
     1. SourceForge の XAMPP 公式プロジェクトから xampp-windows-x64-8.2.12-0-VS16.zip を取得して照合する
-    2. 作業フォルダ（work\stage）に展開し、update-xampp-php.ps1 と update-xampp-apache.ps1 を -Staging で適用する
+    2. 作業フォルダ（work\stage）に展開し、update-xampp-php.ps1、update-xampp-apache.ps1、update-xampp-mariadb.ps1、
+       update-xampp-phpmyadmin.ps1 を -Staging で適用する（MariaDB のデータの移行では、MariaDB を 127.0.0.1 の
+       空いているポートで一時的に起動する）
     3. dist フォルダに zip と、その SHA-256 を書き出す
 
     出来上がる zip には XAMPP、MariaDB、phpMyAdmin などの GPL のソフトウェアが含まれます。
@@ -15,7 +17,7 @@
     php.ini を変更しません（session.upload_progress.enabled は PHP 既定の On のまま）。
 
 .PARAMETER PhpOnly
-    Apache は更新しません。
+    PHP だけを更新します（Apache、MariaDB、phpMyAdmin は更新しません）。
 
 .EXAMPLE
     .\build-package.ps1
@@ -83,7 +85,16 @@ try {
         if ($LASTEXITCODE -ne 0 -or -not $apache) {
             throw 'Apache の入れ替えに失敗しました。'
         }
-        $name += "-apache$($apache.ToVersion)"
+        # MariaDB の移行では、組み立て中のフォルダで MariaDB を 127.0.0.1 の空いているポートに一時的に起動する
+        $mariadb = & (Join-Path $PSScriptRoot 'update-xampp-mariadb.ps1') @options
+        if ($LASTEXITCODE -ne 0 -or -not $mariadb) {
+            throw 'MariaDB の入れ替えに失敗しました。'
+        }
+        $phpMyAdmin = & (Join-Path $PSScriptRoot 'update-xampp-phpmyadmin.ps1') @options
+        if ($LASTEXITCODE -ne 0 -or -not $phpMyAdmin) {
+            throw 'phpMyAdmin の入れ替えに失敗しました。'
+        }
+        $name += '-apache{0}-mariadb{1}-pma{2}' -f $apache.ToVersion, $mariadb.ToVersion, $phpMyAdmin.ToVersion
     }
 
     Write-Step 'zip を作成'

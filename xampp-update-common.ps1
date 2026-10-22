@@ -64,37 +64,41 @@ function Resolve-XamppDir([string]$Path) {
     throw ('XAMPP が複数見つかりました（{0}）。-XamppDir でどれか 1 つを指定してください。' -f ($found -join ', '))
 }
 
-# この XAMPP の Apache / PHP として動いているプロセス
-function Get-BlockingProcess([string]$Root) {
+# 既定では、この XAMPP の Apache / PHP として動いているプロセス
+$ApachePhpProcessNames = 'httpd', 'php', 'php-cgi', 'php-win', 'phpdbg', 'ApacheMonitor', 'rotatelogs'
+
+# この XAMPP のフォルダにある $Names のプロセス
+function Get-BlockingProcess([string]$Root, [string[]]$Names = $ApachePhpProcessNames) {
     $prefix = $Root + '\'
-    $names = 'httpd', 'php', 'php-cgi', 'php-win', 'phpdbg', 'ApacheMonitor', 'rotatelogs'
-    foreach ($process in @(Get-Process -Name $names -ErrorAction SilentlyContinue)) {
+    foreach ($process in @(Get-Process -Name $Names -ErrorAction SilentlyContinue)) {
         $path = $null
         try { $path = $process.Path } catch { }
         if ($path) {
             if ($path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
                 $process
             }
-        } elseif ($process.ProcessName -eq 'httpd') {
-            # 権限の都合で場所を読めない httpd（サービスとして動いているものなど）も止めてもらう
+        } elseif ($process.ProcessName -in 'httpd', 'mysqld', 'mariadbd') {
+            # 権限の都合で場所を読めないサーバー（サービスとして動いているものなど）も止めてもらう
             $process
         }
     }
 }
 
-# この XAMPP の Apache / PHP を使っている、止まっていないサービス
-function Get-BlockingService([string]$Root) {
+# この XAMPP の $Names のプログラムを使っている、止まっていないサービス
+function Get-BlockingService([string]$Root, [string[]]$Names = $ApachePhpProcessNames) {
     $prefix = $Root + '\'
+    $pattern = '(?i)\\(' + (($Names | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')\.exe'
     Get-CimInstance -ClassName Win32_Service -ErrorAction SilentlyContinue | Where-Object {
         $_.State -ne 'Stopped' -and $_.PathName -and
         $_.PathName.IndexOf($prefix, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
-        $_.PathName -match '(?i)httpd\.exe|php'
+        $_.PathName -match $pattern
     }
 }
 
-function Assert-NotRunning([string]$Root, [bool]$Force) {
-    $services = @(Get-BlockingService $Root)
-    $processes = @(Get-BlockingProcess $Root)
+function Assert-NotRunning([string]$Root, [bool]$Force, [string[]]$Names = $ApachePhpProcessNames,
+    [string]$Hint = 'XAMPP コントロールパネルで Apache を Stop してから（サービスとして登録している場合はサービスも停止してから）、もう一度実行してください。') {
+    $services = @(Get-BlockingService $Root $Names)
+    $processes = @(Get-BlockingProcess $Root $Names)
     if ($services.Count -eq 0 -and $processes.Count -eq 0) {
         Write-Info '問題ありません。'
         return
@@ -106,9 +110,32 @@ function Assert-NotRunning([string]$Root, [bool]$Force) {
         Write-Note "動作中のプロセス: $($process.ProcessName).exe（PID $($process.Id)）"
     }
     if (-not $Force) {
-        throw 'XAMPP コントロールパネルで Apache を Stop してから（サービスとして登録している場合はサービスも停止してから）、もう一度実行してください。'
+        throw $Hint
     }
     Write-Note '-Force が指定されているため続行します。'
+}
+
+# zip を展開する。Windows 10 以降の tar.exe のほうが Expand-Archive よりずっと速いので、あれば使う。
+function Expand-ZipFile([string]$Zip, [string]$Destination) {
+    New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+    $tar = Join-Path (Get-SystemDir) 'tar.exe'
+    if (Test-Path -LiteralPath $tar) {
+        $result = Invoke-Native $tar @('-xf', $Zip, '-C', $Destination)
+        if ($result.ExitCode -ne 0) {
+            throw "展開に失敗しました: $($result.Output.Trim())"
+        }
+    } else {
+        Expand-Archive -LiteralPath $Zip -DestinationPath $Destination
+    }
+}
+
+# $Root にある $Prefix<バージョン>_<日時> のバックアップを新しい順に返す
+function Get-BackupFolder([string]$Root, [string]$Prefix) {
+    @(
+        Get-ChildItem -LiteralPath $Root -Directory -Filter "$Prefix*" |
+            Where-Object { $_.Name -match '_\d{8}-\d{6}$' } |
+            Sort-Object { $_.Name.Substring($_.Name.Length - 15) } -Descending
+    )
 }
 
 function Confirm-Continue([string]$Question, [bool]$Yes) {

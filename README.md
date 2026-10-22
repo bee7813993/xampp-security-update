@@ -1,11 +1,13 @@
 # XAMPP セキュリティ更新（非公式）
 
-XAMPP for Windows 8.2.12 の PHP と Apache を、脆弱性を修正した新しいものに入れ替えるための更新スクリプトとインストーラーです。
+XAMPP for Windows 8.2.12 の PHP、Apache、MariaDB、phpMyAdmin を、脆弱性を修正した新しいものに入れ替えるための更新スクリプトとインストーラーです。
 
 | 部品 | XAMPP 8.2.12 | 更新後 | 主な理由 |
 | --- | --- | --- | --- |
 | PHP | 8.2.12 | 8.2.35 | PHP2Shell（CVE-2026-109618 / CVE-2026-109619）ほか |
 | Apache | 2.4.58（OpenSSL 3.1.3） | 2.4.69（OpenSSL 3.5.9） | 2.4.59〜2.4.69 で修正された 72 件の脆弱性、OpenSSL 3.1 のサポート終了 |
+| MariaDB | 10.4.32 | 11.4.13 | 10.4 のサポート終了（2024 年 6 月）。11.4 は長期サポート版（2029 年 5 月まで） |
+| phpMyAdmin | 5.2.1 | 5.2.3 | 5.2.2 で修正された XSS などの脆弱性（PMASA-2025-1〜3） |
 
 > [!IMPORTANT]
 > Apache Friends（XAMPP の開発元）による公式の配布物ではありません。XAMPP の公式版が更新されるまでのつなぎとしてお使いください。
@@ -24,6 +26,11 @@ XAMPP for Windows 8.2.12 の PHP と Apache を、脆弱性を修正した新し
 - XAMPP 8.2.12 の Apache 2.4.58（2023 年 10 月）は、2.4.69（2026 年 10 月）までに修正された 72 件の脆弱性の影響を受けます。Windows 版だけに関係する NTLM ハッシュの漏えい（CVE-2024-38472 など）や、実際の攻撃が確認されている mod_rewrite の脆弱性（CVE-2024-38475）も含まれます。
 - 同梱の OpenSSL 3.1.3 は 2025 年 3 月にサポートが終わっています。Apache の中で動く PHP の openssl 拡張と curl 拡張も、この OpenSSL を使います。
 
+### MariaDB と phpMyAdmin
+
+- XAMPP 8.2.12 の MariaDB 10.4 は、2024 年 6 月にサポートが終わっています。
+- phpMyAdmin 5.2.1 には、5.2.2 で修正された XSS などの脆弱性（PMASA-2025-1〜3）があります。
+
 XAMPP for Windows の最新版は 8.2.12 のままで、修正版はまだ出ていません。
 
 ## どれを使うか
@@ -31,19 +38,19 @@ XAMPP for Windows の最新版は 8.2.12 のままで、修正版はまだ出て
 | 状況 | 使うもの |
 | --- | --- |
 | すでに XAMPP 8.2.x を使っている | [更新スクリプト](#既存の-xampp-を更新する)（`update-xampp.bat`） |
-| これから XAMPP を入れる | [インストーラー](#新しく入れる)（`xampp-8.2.12-php8.2.35-apache2.4.69-setup.exe`） |
+| これから XAMPP を入れる | [インストーラー](#新しく入れる)（`xampp-8.2.12-php8.2.35-apache2.4.69-mariadb11.4.13-setup.exe`） |
 
 XAMPP 8.0 / 8.1 系（PHP 8.0 / 8.1）は、PHP 本体のサポートが終わっていて修正版が出ないため対象外です。XAMPP 8.2.12 に移行するか、インストーラーで入れ直してください。
 
 ## 既存の XAMPP を更新する
 
-1. XAMPP コントロールパネルで Apache を Stop します。Apache をサービスとして登録している場合は、サービスも停止します。
+1. XAMPP コントロールパネルで Apache と MySQL を Stop します。サービスとして登録している場合は、サービスも停止します。
 2. [Releases](../../releases) から `xampp-security-update-*.zip` をダウンロードして、好きな場所に展開します。
-3. `update-xampp.bat` をダブルクリックします。PHP、Apache の順に更新します。それぞれ内容を確認して `y` を入力し、Enter キーを押します。
-4. 「完了しました」と表示されたら、XAMPP コントロールパネルで Apache を Start します。
-5. ブラウザーで `http://localhost/dashboard/phpinfo.php` を開き、PHP Version が 8.2.35、Apache Version が Apache/2.4.69 になっていることを確認します。
+3. `update-xampp.bat` をダブルクリックします。PHP、Apache、MariaDB、phpMyAdmin の順に更新します（入っていない部品は飛ばします）。それぞれ内容を確認して `y` を入力し、Enter キーを押します。
+4. 「完了しました」と表示されたら、XAMPP コントロールパネルで Apache と MySQL を Start します。
+5. ブラウザーで `http://localhost/dashboard/phpinfo.php` を開き、PHP Version が 8.2.35、Apache Version が Apache/2.4.69 になっていることを確認します。`http://localhost/phpmyadmin/` では、データベースサーバーが 11.4.13-MariaDB になっていることを確認できます。
 
-PHP だけ、Apache だけを更新するときは、`update-xampp-php.bat` か `update-xampp-apache.bat` を使います。
+一部の部品だけを更新するときは、`update-xampp-php.bat`、`update-xampp-apache.bat`、`update-xampp-mariadb.bat`、`update-xampp-phpmyadmin.bat` を使います。
 
 XAMPP を `C:\xampp` 以外にインストールしている場合、各ドライブ直下の `\xampp` は自動で見つけます。それ以外の場所にある場合は、コマンドプロンプトでフォルダを指定してください。
 
@@ -51,7 +58,14 @@ XAMPP を `C:\xampp` 以外にインストールしている場合、各ドラ�
 update-xampp.bat -XamppDir D:\tools\xampp
 ```
 
-インターネットにつながっていない PC では、別の PC で `php-8.2.35-Win32-vs16-x64.zip`（[php.net](https://www.php.net/downloads.php?os=windows)）と `httpd-2.4.69-261002-Win64-VS18.zip`（[Apache Lounge](https://www.apachelounge.com/download/)）を入手し、`update-xampp.bat` と同じフォルダに置いてから実行してください。
+インターネットにつながっていない PC では、別の PC で次のファイルを入手し、`update-xampp.bat` と同じフォルダに置いてから実行してください。
+
+| ファイル | 入手先 |
+| --- | --- |
+| `php-8.2.35-Win32-vs16-x64.zip` | [php.net](https://www.php.net/downloads.php?os=windows) |
+| `httpd-2.4.69-261002-Win64-VS18.zip` | [Apache Lounge](https://www.apachelounge.com/download/) |
+| `mariadb-11.4.13-winx64.zip` | [MariaDB](https://mariadb.org/download/) |
+| `phpMyAdmin-5.2.3-all-languages.zip` | [phpMyAdmin](https://www.phpmyadmin.net/downloads/) |
 
 公式の zip を手作業で上書きして、すでに PHP 8.2.35 や Apache 2.4.69 にしている場合も、このスクリプトを実行してください。足りない DLL の追加や、弱い証明書の作り直しだけを行います。
 
@@ -72,15 +86,31 @@ update-xampp.bat -XamppDir D:\tools\xampp
 4. HTTPS の証明書が弱い場合は、この PC だけの鍵で作り直します（localhost 用の自己署名証明書。RSA 2048 ビット、SHA-256）。XAMPP 付属の証明書は 1024 ビット鍵・SHA-1 署名のうえ、すべての XAMPP で同じ鍵です。OpenSSL 3.5 ではこの証明書を読み込めず、そのままでは Apache が起動しません。作り直したくない場合は `-KeepCertificate` を付けます。
 5. `httpd.exe -v` と `httpd.exe -t` で起動できることを確かめ、PHP と有効な拡張が使う DLL が Apache から見つかることも確かめます。
 
+### MariaDB の更新で行うこと（update-xampp-mariadb.bat）
+
+1. MariaDB 公式の Windows 版（`mariadb-11.4.13-winx64.zip`）を取得し、MariaDB が公開している SHA-256 と照合します。
+2. `mysql` フォルダを、データを含めて丸ごと `mysql_backup_<元のバージョン>_<日時>` にバックアップします（ディスクの空きを先に確かめます）。
+3. 元の MariaDB 10.4 を一時的に起動して、正常に終了させます。XAMPP の MySQL の停止はプロセスの強制終了なので、そのままでは新しい版がデータを開けないためです。
+4. `bin`、`lib`、`share` を新しい版に入れ替えます。`my.ini` はそのまま使います（新しい版が注意を出す省略形の `key_buffer` だけ、正式名の `key_buffer_size` に書き換えます）。
+5. 新しい版を一時的に起動し、`mariadb-upgrade` でシステムテーブルなどを移行してから正常に終了させ、もう一度起動してエラーが出ないことを確かめます。
+6. 途中で失敗した場合は、バックアップから元に戻します。
+
+作業中に一時的に起動する MariaDB は、127.0.0.1 の空いているポートだけで待ち受け、権限の確認を省いた状態で動かします（root にパスワードを付けていても移行できます）。作業が終わるまで、XAMPP コントロールパネルで MySQL を操作しないでください。
+
+### phpMyAdmin の更新で行うこと（update-xampp-phpmyadmin.bat）
+
+1. phpMyAdmin 公式の配布物（`phpMyAdmin-5.2.3-all-languages.zip`）を取得し、phpMyAdmin が公開している SHA-256 と照合します。
+2. いまの `phpMyAdmin` フォルダの名前を `phpMyAdmin_backup_<元のバージョン>_<日時>` に変えて残し、新しい phpMyAdmin を置いて `config.inc.php` を引き継ぎます。ほかに自分で追加したファイル（テーマなど）がある場合は、バックアップから写してください。
+
 ### 元に戻す
 
-Apache を止めてから、次のように実行します。PHP と Apache のそれぞれで、いちばん新しいバックアップに戻ります。
+Apache と MySQL を止めてから、次のように実行します。各部品が、いちばん新しいバックアップに戻ります（バックアップがない部品は飛ばします）。
 
 ```bat
 update-xampp.bat -Restore
 ```
 
-PHP の `-Restore` は、入れ替え後の `php` フォルダを `php_replaced_<日時>` という名前で残します。
+MariaDB を元に戻すと、更新したあとに追加・変更したデータは失われます（入れ替え後の `mysql` フォルダは `mysql_replaced_<日時>` という名前で残します）。PHP と phpMyAdmin も、入れ替え後のフォルダを `php_replaced_<日時>`、`phpMyAdmin_replaced_<日時>` という名前で残します。
 
 ### オプション
 
@@ -89,20 +119,22 @@ PHP の `-Restore` は、入れ替え後の `php` フォルダを `php_replaced_
 | `-XamppDir <フォルダ>` | すべて | XAMPP のフォルダを指定します。 |
 | `-Restore` | すべて | いちばん新しいバックアップに戻します。 |
 | `-Yes` | すべて | 確認の問い合わせを省略します。 |
-| `-Force` | すべて | バージョン系列が違う場合や、Apache が動いている場合でも続行します（おすすめしません）。 |
+| `-Force` | すべて | バージョン系列が違う場合や、Apache や MySQL が動いている場合でも続行します（おすすめしません）。 |
 | `-NoHarden` | PHP | `php.ini` を変更しません。 |
 | `-PhpZip <ファイル>` | PHP | 手元にある公式の zip を使います（SHA-256 は照合します）。 |
 | `-KeepCertificate` | Apache | 証明書が弱くても作り直しません。 |
 | `-ApacheZip <ファイル>` | Apache | 手元にある Apache Lounge の zip を使います（SHA-256 は照合します）。 |
+| `-MariaDbZip <ファイル>` | MariaDB | 手元にある MariaDB の zip を使います（SHA-256 は照合します）。 |
+| `-PhpMyAdminZip <ファイル>` | phpMyAdmin | 手元にある phpMyAdmin の zip を使います（SHA-256 は照合します）。 |
 
 ## 新しく入れる
 
-[Releases](../../releases) の `xampp-8.2.12-php8.2.35-apache2.4.69-setup.exe` を実行します。XAMPP 8.2.12 の PHP と Apache を更新したものが入ります。
+[Releases](../../releases) の `xampp-8.2.12-php8.2.35-apache2.4.69-mariadb11.4.13-setup.exe` を実行します。XAMPP 8.2.12 の PHP、Apache、MariaDB、phpMyAdmin を更新したものが入ります。
 
 | 部品 | 内容 |
 | --- | --- |
 | 必須 | Apache 2.4.69、PHP 8.2.35、XAMPP コントロールパネル、ダッシュボードなど |
-| 選択 | MariaDB 10.4.32、phpMyAdmin 5.2.1 |
+| 選択 | MariaDB 11.4.13、phpMyAdmin 5.2.3 |
 | 入らない | Perl、Tomcat、FileZilla Server、Mercury Mail、Webalizer、fake sendmail（サポートが終わっているか古いため）、PHP の enchant 拡張 |
 
 - 既定のインストール先は `C:\xampp` です。空白や日本語を含むフォルダと、すでに XAMPP があるフォルダには入れられません。
@@ -114,7 +146,8 @@ PHP の `-Restore` は、入れ替え後の `php` フォルダを `php_replaced_
 ## 注意
 
 - PHP 8.2 系のサポートは 2026 年 12 月 31 日で終わります。長く使う場合は、より新しい PHP への移行を検討してください。
-- MariaDB 10.4（サポート終了）と phpMyAdmin 5.2.1 は古いままです。XAMPP はインターネットに公開しないでください。
+- XAMPP は開発用の環境です。MariaDB の root にはパスワードが設定されていません（XAMPP と同じ）。インターネットには公開しないでください。
+- MariaDB 11.4 の `mysql.exe` でパスワードなしの root に接続すると、「--ssl-verify-server-cert is disabled」という警告が出ます。動作に問題はありません。
 - 修正版の PHP では、`memory_limit` を大きく超えるメモリー確保（既定では 2 倍。`memory_limit` が 1GB を超える場合は +1GB）で、エラー処理を待たずにプロセスを終了する仕組みが加わりました。上限は新しい設定 `memory_hard_limit_percent` で変えられます。よく使う関数の大きな確保は通常の Fatal error で止まりますが、この上限に当たった場合、XAMPP（Apache + mod_php）では Apache の子プロセスごと終了し、そのとき処理中だった他のリクエストも切断されます。
 - Apache の中で動く PHP の openssl 拡張と curl 拡張は、`apache\bin` にある Apache 側の OpenSSL を使います。PHP だけを更新した場合、この OpenSSL は 3.1.3 のままです。
 
@@ -122,22 +155,22 @@ PHP の `-Restore` は、入れ替え後の `php` フォルダを `php_replaced_
 
 | スクリプト | 内容 |
 | --- | --- |
-| `build-package.ps1` | 公式の `xampp-windows-x64-8.2.12-0-VS16.zip` を SourceForge から取得し（SHA-256 を照合）、PHP と Apache を更新した一式の zip を `dist` フォルダに作ります（`-PhpOnly` で PHP だけ）。 |
+| `build-package.ps1` | 公式の `xampp-windows-x64-8.2.12-0-VS16.zip` を SourceForge から取得し（SHA-256 を照合）、PHP、Apache、MariaDB、phpMyAdmin を更新した一式の zip を `dist` フォルダに作ります（`-PhpOnly` で PHP だけ）。MariaDB のデータの移行では、MariaDB を 127.0.0.1 の空いているポートで一時的に起動します。 |
 | `build-installer.ps1` | `build-package.ps1` の作業フォルダから、Inno Setup（6.3 以降）でインストーラーを作ります。 |
-| `tests\smoke-test.ps1` | XAMPP 一式の zip またはインストール済みのフォルダで Apache を `127.0.0.1:8080` / `8443` に一時的に起動し、PHP と Apache の動作を確かめます。`-ApplyUpdate` で更新スクリプトの適用と `-Restore` も確かめます。 |
+| `tests\smoke-test.ps1` | XAMPP 一式の zip またはインストール済みのフォルダで、Apache を `127.0.0.1:8080` / `8443` に、MariaDB を 127.0.0.1 の空いているポートに一時的に起動し、PHP、Apache、MariaDB、phpMyAdmin の動作を確かめます。`-ApplyUpdate` では、元の MariaDB にデータを書き込んで強制終了させてから更新スクリプトを適用し、データの移行と `-Restore` も確かめます。 |
 | `tests\installer-test.ps1` | インストーラーを確認用のフォルダにサイレントでインストールし、中身と動作を確かめてからアンインストールします。 |
 
 ```powershell
 .\build-package.ps1
 .\build-installer.ps1
 .\tests\smoke-test.ps1 -Zip .\downloads\xampp-windows-x64-8.2.12-0-VS16.zip -ApplyUpdate
-.\tests\installer-test.ps1 -Setup .\dist\xampp-8.2.12-php8.2.35-apache2.4.69-setup.exe
+.\tests\installer-test.ps1 -Setup .\dist\xampp-8.2.12-php8.2.35-apache2.4.69-mariadb11.4.13-setup.exe
 ```
 
 ## ライセンス
 
 - このリポジトリのスクリプトは [BSD 3-Clause License](LICENSE) で公開しています。
-- 更新スクリプトは PHP や Apache のファイルを含まず、実行時にそれぞれの公式の配布元から取得します。
+- 更新スクリプトは PHP、Apache、MariaDB、phpMyAdmin のファイルを含まず、実行時にそれぞれの公式の配布元から取得します。
 - インストーラーと、Releases に置いた Apache Lounge の zip には、次のソフトウェアが含まれます。それぞれのライセンスに従います（インストール先の `licenses` フォルダと、各フォルダ内のライセンス文書も参照してください）。
 
 | ソフトウェア | ライセンス | ソースコード |
@@ -145,8 +178,8 @@ PHP の `-Restore` は、入れ替え後の `php` フォルダを `php_replaced_
 | XAMPP（コントロールパネルなどのツール） | GNU GPL v2 | インストール先の `src` フォルダ |
 | Apache HTTP Server 2.4.69（Apache Lounge の Windows 版） | Apache License 2.0（同梱のライブラリは各ライセンス） | [httpd.apache.org](https://httpd.apache.org/download.cgi)、[Apache Lounge](https://www.apachelounge.com/) |
 | PHP 8.2.35（php.net の Windows 版） | PHP License（同梱のライブラリは各ライセンス） | [php.net](https://www.php.net/downloads.php) |
-| MariaDB 10.4.32 | GNU GPL v2 | Releases の `mariadb-10.4.32.tar.gz` |
-| phpMyAdmin 5.2.1 | GNU GPL v2 | Releases の `phpMyAdmin-5.2.1-source.tar.xz` |
+| MariaDB 11.4.13 | GNU GPL v2 | Releases の `mariadb-11.4.13.tar.gz` |
+| phpMyAdmin 5.2.3 | GNU GPL v2 | Releases の `phpMyAdmin-5.2.3-source.tar.xz` |
 
 PHP の Windows 版に同梱されている LGPL の DLL（enchant 拡張と glib）は、インストーラーに含めていません。
 
@@ -159,5 +192,7 @@ PHP の Windows 版に同梱されている LGPL の DLL（enchant 拡張と gli
 - [GHSA-6wmf-4rv5-p3rp: RCE via stale global state](https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp)
 - [Apache HTTP Server 2.4 の脆弱性一覧](https://httpd.apache.org/security/vulnerabilities_24.html)
 - [Apache Lounge のダウンロード](https://www.apachelounge.com/download/)
+- [MariaDB のダウンロード](https://mariadb.org/download/)
+- [phpMyAdmin のダウンロード](https://www.phpmyadmin.net/downloads/)
 - [PHP for Windows のダウンロード](https://www.php.net/downloads.php?os=windows)
 - [XAMPP for Windows 8.2.12（SourceForge）](https://sourceforge.net/projects/xampp/files/XAMPP%20Windows/8.2.12/)

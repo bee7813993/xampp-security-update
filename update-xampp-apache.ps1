@@ -538,13 +538,11 @@ function Invoke-Update {
 function Invoke-Restore {
     $root = Resolve-XamppDir $XamppDir
     $apacheDir = Join-Path $root 'apache'
-    $backups = @(
-        Get-ChildItem -LiteralPath $root -Directory -Filter 'apache_backup_*' |
-            Where-Object { $_.Name -match '_\d{8}-\d{6}$' } |
-            Sort-Object { $_.Name.Substring($_.Name.Length - 15) } -Descending
-    )
+    $backups = @(Get-BackupFolder $root 'apache_backup_')
     if ($backups.Count -eq 0) {
-        throw "バックアップ（apache_backup_*）が見つかりません: $root"
+        Write-Host ''
+        Write-Host "Apache のバックアップ（apache_backup_*）がないため、何もしません: $root"
+        return
     }
     $backup = $backups[0]
 

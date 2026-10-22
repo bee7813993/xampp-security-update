@@ -1,29 +1,31 @@
 ﻿<#
 .SYNOPSIS
-    XAMPP の Apache を一時的に起動し、PHP と Apache が正しく動くかを確かめます。
+    XAMPP の Apache と MariaDB を一時的に起動し、PHP、Apache、MariaDB、phpMyAdmin が正しく動くかを確かめます。
 
 .DESCRIPTION
     1. -Zip を指定したときは、XAMPP 一式の zip を作業フォルダに展開し、XAMPP の install\install.php で
-       パスを書き換える（Perl、Tomcat、MySQL など、Apache と PHP の確認に使わないフォルダは展開しない）。
+       パスを書き換える（Perl、Tomcat など、確認に使わないフォルダは展開しない）。
        -XamppDir を指定したときは、インストール済みのそのフォルダをそのまま使う
-    2. -ApplyUpdate を付けたときは、update-xampp-php.ps1 と update-xampp-apache.ps1 を
-       通常の手順（バックアップと確認つき）で適用する
-    3. Apache を 127.0.0.1 の別のポート（HTTP と HTTPS）で起動し、次のことを確かめる
+    2. -ApplyUpdate を付けたときは、元の MariaDB に確認用のデータを書き込んで（XAMPP と同じく）強制終了させてから、
+       update-xampp-php / apache / mariadb / phpmyadmin.ps1 を通常の手順（バックアップと確認つき）で適用する
+    3. Apache を 127.0.0.1 の別のポート（HTTP と HTTPS）で、MariaDB を 127.0.0.1 の空いているポートで、
+       XAMPP コントロールパネルと同じ引数で起動し、次のことを確かめる
        - Apache と PHP のバージョン、SAPI、読み込まれた php.ini と php8ts.dll の場所
        - php.ini で有効にしている拡張がすべて読み込まれているか（curl を含む）
        - HTTPS で応答するか
        - multipart/form-data のファイルアップロード
        - memory_limit を超えるスクリプトのあとも、上限が効いていて Apache が応答し続けるか
        - memory_limit の 3 倍を 1 回で確保するスクリプトのあとも、Apache が応答し続けるか
-    4. Apache を止める。-ApplyUpdate を付けたときは、両方のスクリプトの -Restore で
-       php フォルダと apache フォルダが更新前と同じに戻るかも確かめる
+       - MariaDB のバージョン、移行したデータ、PHP（mysqli）からの読み書き、phpMyAdmin の画面
+    4. Apache と MariaDB を止める。-ApplyUpdate を付けたときは、各スクリプトの -Restore で
+       php、apache、mysql、phpMyAdmin の各フォルダが更新前と同じに戻るかも確かめる
     5. 作業フォルダを片付ける
 
-    -XamppDir のときは、そのフォルダの httpd.conf と httpd-ssl.conf の待ち受けポートを書き換え、
-    htdocs に確認用のファイルを置きます。確認専用にインストールしたフォルダで使ってください。
+    -XamppDir のときは、そのフォルダの httpd.conf、httpd-ssl.conf の待ち受けポートと phpMyAdmin の接続先ポートを
+    書き換え、htdocs に確認用のファイルを置きます。確認専用にインストールしたフォルダで使ってください。
 
 .EXAMPLE
-    .\tests\smoke-test.ps1 -Zip .\dist\xampp-windows-x64-8.2.12-0-VS16-php8.2.35-apache2.4.69.zip
+    .\tests\smoke-test.ps1 -Zip .\dist\xampp-windows-x64-8.2.12-0-VS16-php8.2.35-apache2.4.69-mariadb11.4.13-pma5.2.3.zip
 
 .EXAMPLE
     .\tests\smoke-test.ps1 -Zip .\downloads\xampp-windows-x64-8.2.12-0-VS16.zip -ApplyUpdate
@@ -38,6 +40,8 @@ param(
     [switch]$ApplyUpdate,
     [string]$ExpectedVersion = '8.2.35',
     [string]$ExpectedApacheVersion = '2.4.69',
+    [string]$ExpectedMariaDbVersion = '11.4.13',
+    [string]$ExpectedPhpMyAdminVersion = '5.2.3',
     [int]$Port = 8080,
     [int]$SslPort = 8443,
     [string]$WorkDir,
@@ -58,6 +62,7 @@ if ([bool]$Zip -eq [bool]$XamppDir) {
 $tar = Join-Path (Get-SystemDir) 'tar.exe'
 $curl = Join-Path (Get-SystemDir) 'curl.exe'
 $results = New-Object 'System.Collections.Generic.List[object]'
+$UpdateScripts = 'php', 'apache', 'mariadb', 'phpmyadmin'
 
 function Add-Result([string]$Name, [bool]$Ok, [string]$Detail) {
     $mark = 'NG'
@@ -86,7 +91,7 @@ function Invoke-Http([string]$Url, [string[]]$Extra) {
     }
 }
 
-function Stop-Httpd($Process) {
+function Stop-ProcessTree($Process) {
     if (-not $Process) {
         return
     }
@@ -111,30 +116,119 @@ function Get-ModuleInProcess($Process, [string]$Name) {
     return $modules
 }
 
-# 更新で変わりうるファイル（php の DLL と php.ini、apache の bin・modules・include・lib・証明書）の SHA-256 を控える
+# MariaDB が書き込み中のエラーログを、$Offset バイト目から読む
+function Read-LogSince([string]$Path, [long]$Offset) {
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return ''
+    }
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+    try {
+        if ($Offset -ge $stream.Length) {
+            return ''
+        }
+        $stream.Position = $Offset
+        return (New-Object IO.StreamReader($stream, [Text.Encoding]::UTF8)).ReadToEnd()
+    } finally {
+        $stream.Dispose()
+    }
+}
+
+function Get-FreePort {
+    $listener = New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0)
+    $listener.Start()
+    try {
+        return $listener.LocalEndpoint.Port
+    } finally {
+        $listener.Stop()
+    }
+}
+
+# XAMPP コントロールパネルと同じ引数（--defaults-file と --standalone）で MariaDB を起動する。
+# Windows 版の MariaDB 10.4 は、非表示のコンソールで起動すると、起動の途中でコンソールを切り離すときにまれに落ちるので、
+# 標準出力と標準エラー出力はファイルに向ける。初期化の途中で接続されても落ちることがあるので、
+# ポートの待ち受けが始まってから 3 秒たってから接続を確かめる。
+function Start-TestMariaDb([string]$Root, [int]$DbPort) {
+    $mysql = Join-Path $Root 'mysql'
+    $arguments = @("--defaults-file=`"$mysql\bin\my.ini`"", '--standalone', "--port=$DbPort", '--bind-address=127.0.0.1')
+    $name = 'mysqld-{0}-{1}' -f $DbPort, [guid]::NewGuid().ToString('N').Substring(0, 8)
+    $process = Start-Process -FilePath (Join-Path $mysql 'bin\mysqld.exe') -ArgumentList $arguments -WorkingDirectory $Root -WindowStyle Hidden -PassThru `
+        -RedirectStandardOutput (Join-Path $WorkDir "$name.out") -RedirectStandardError (Join-Path $WorkDir "$name.err")
+    $ping = [pscustomobject]@{ Output = '（接続前）' }
+    $listening = -1
+    try {
+        for ($i = 0; $i -lt 240 -and -not $process.HasExited; $i++) {
+            Start-Sleep -Milliseconds 500
+            if ($listening -lt 0 -and [bool]([Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners() | Where-Object { $_.Port -eq $DbPort })) {
+                $listening = $i
+            }
+            if ($listening -lt 0 -or $i - $listening -lt 6) {
+                continue
+            }
+            $ping = Invoke-Native (Join-Path $mysql 'bin\mysqladmin.exe') @('--no-defaults', '--host=127.0.0.1', "--port=$DbPort", '--user=root', '--connect-timeout=5', 'ping')
+            if ($ping.Output -match 'alive') {
+                return $process
+            }
+        }
+    } catch {
+        Stop-ProcessTree $process
+        throw
+    }
+    $state = '動作中のまま応答なし'
+    if ($process.HasExited) {
+        $state = "終了コード $($process.ExitCode) で終了"
+    }
+    Stop-ProcessTree $process
+    throw "MariaDB が起動しません（$state、最後の ping: $($ping.Output.Trim())）。`n$((Get-Content -LiteralPath (Join-Path $mysql 'data\mysql_error.log') -Tail 15 -ErrorAction SilentlyContinue) -join "`n")"
+}
+
+function Invoke-Sql([string]$Root, [int]$DbPort, [string]$Sql) {
+    $result = Invoke-Native (Join-Path $Root 'mysql\bin\mysql.exe') @('--no-defaults', '--host=127.0.0.1', "--port=$DbPort", '--user=root', '-N', '-B', '-e', $Sql)
+    # MariaDB 11.4 の mysql.exe は、パスワードなしで接続するとサーバー証明書の検証を省くことを WARNING で知らせる
+    $lines = @($result.Output -split "`n" | Where-Object { $_ -notmatch '^WARNING: option --ssl-verify-server-cert' })
+    return [pscustomobject]@{ ExitCode = $result.ExitCode; Output = ($lines -join "`n") }
+}
+
+function Stop-TestMariaDb([string]$Root, [int]$DbPort, $Process) {
+    if (-not $Process -or $Process.HasExited) {
+        return
+    }
+    Invoke-Native (Join-Path $Root 'mysql\bin\mysqladmin.exe') @('--no-defaults', '--host=127.0.0.1', "--port=$DbPort", '--user=root', 'shutdown') | Out-Null
+    if (-not $Process.WaitForExit(120000)) {
+        Stop-ProcessTree $Process
+    }
+}
+
+# 更新で変わりうるファイルの SHA-256 を控える
 function Get-Snapshot([string]$Root) {
     $files = @{}
-    $apache = Join-Path $Root 'apache'
-    foreach ($dir in 'bin', 'modules', 'include', 'lib') {
-        foreach ($file in @(Get-ChildItem -LiteralPath (Join-Path $apache $dir) -File -Recurse)) {
-            $files['apache\' + $file.FullName.Substring($apache.Length + 1)] = (Get-FileHash -LiteralPath $file.FullName).Hash
-        }
+    $add = {
+        param([string]$Path)
+        $files[$Path.Substring($Root.Length + 1)] = (Get-FileHash -LiteralPath $Path).Hash
     }
-    foreach ($item in 'conf\ssl.crt\server.crt', 'conf\ssl.key\server.key', 'LICENSE.txt', 'NOTICE.txt') {
-        $path = Join-Path $apache $item
+    foreach ($dir in 'apache\bin', 'apache\modules', 'apache\include', 'apache\lib', 'mysql') {
+        $path = Join-Path $Root $dir
         if (Test-Path -LiteralPath $path) {
-            $files["apache\$item"] = (Get-FileHash -LiteralPath $path).Hash
+            foreach ($file in @(Get-ChildItem -LiteralPath $path -File -Recurse)) {
+                & $add $file.FullName
+            }
         }
     }
-    foreach ($item in 'php8ts.dll', 'php.ini', 'ext\php_curl.dll') {
-        $files["php\$item"] = (Get-FileHash -LiteralPath (Join-Path $Root "php\$item")).Hash
+    foreach ($item in 'apache\conf\ssl.crt\server.crt', 'apache\conf\ssl.key\server.key', 'apache\LICENSE.txt', 'php\php8ts.dll', 'php\php.ini',
+        'php\ext\php_curl.dll', 'phpMyAdmin\libraries\classes\Version.php', 'phpMyAdmin\config.inc.php', 'phpMyAdmin\index.php') {
+        $path = Join-Path $Root $item
+        if (Test-Path -LiteralPath $path) {
+            & $add $path
+        }
     }
     return $files
 }
 
 $httpd = $null
+$mariadb = $null
+$dbPort = 0
 $root = $null
 $before = $null
+$seeded = $false
 try {
     if (Test-Path -LiteralPath $WorkDir) {
         Remove-Item -LiteralPath $WorkDir -Recurse -Force
@@ -148,7 +242,7 @@ try {
         $Zip = (Resolve-Path -LiteralPath $Zip).Path
         Write-Host "==> 展開: $Zip"
         $arguments = @('-xf', $Zip, '-C', $WorkDir)
-        foreach ($skip in @('perl', 'tomcat', 'mysql', 'phpMyAdmin', 'FileZillaFTP', 'MercuryMail', 'webalizer', 'src')) {
+        foreach ($skip in @('perl', 'tomcat', 'FileZillaFTP', 'MercuryMail', 'webalizer', 'src', 'mysql/backup')) {
             $arguments += @('--exclude', "xampp/$skip")
         }
         $result = Invoke-Native $tar $arguments
@@ -169,37 +263,38 @@ try {
     if (-not (Select-String -LiteralPath $xamppConf -SimpleMatch ($root -replace '\\', '/') -Quiet)) {
         throw 'httpd-xampp.conf のパスが XAMPP のフォルダを指していません。'
     }
+    $hasMariaDb = Test-Path -LiteralPath (Join-Path $root 'mysql\bin\mysqld.exe')
+    $hasPhpMyAdmin = Test-Path -LiteralPath (Join-Path $root 'phpMyAdmin\index.php')
+    if ($hasMariaDb) {
+        $dbPort = Get-FreePort
+    }
 
     if ($ApplyUpdate) {
+        if ($hasMariaDb) {
+            # 元の MariaDB にデータを書き込み、XAMPP の MySQL の停止と同じく強制終了させる
+            Write-Host '==> 元の MariaDB に確認用のデータを書き込んで、強制終了させる'
+            $old = Start-TestMariaDb $root $dbPort
+            $seed = Invoke-Sql $root $dbPort ('CREATE DATABASE xampp_update_test; CREATE TABLE xampp_update_test.t (id INT PRIMARY KEY, name VARCHAR(20)) ENGINE=InnoDB; ' +
+                "INSERT INTO xampp_update_test.t VALUES (1, 'alpha'), (2, 'beta'), (3, 'gamma');")
+            Stop-ProcessTree $old
+            $seeded = $seed.ExitCode -eq 0
+            Add-Result '元の MariaDB にデータを書き込んで強制終了' $seeded $(if ($seeded) { 'xampp_update_test.t に 3 行' } else { $seed.Output })
+        }
         $before = Get-Snapshot $root
         $downloads = Join-Path $repoRoot 'downloads'
-
-        Write-Host '==> update-xampp-php.ps1 を適用'
-        $update = & (Join-Path $repoRoot 'update-xampp-php.ps1') -XamppDir $root -DownloadDir $downloads -Yes -PassThru
-        $exitCode = $LASTEXITCODE
-        $ok = ($exitCode -eq 0) -and $update -and ($update.ToVersion -eq $ExpectedVersion) -and $update.Backup -and (Test-Path -LiteralPath $update.Backup)
-        $detail = "終了コード $exitCode"
-        if ($update) {
-            $detail = '{0} -> {1}、apache\bin 更新 [{2}] 追加 [{3}]、php.ini 変更 {4} 件' -f $update.FromVersion, $update.ToVersion,
-                (@($update.ApacheUpdated) -join ', '), (@($update.ApacheAdded) -join ', '), @($update.Hardened).Count
-        }
-        Add-Result 'update-xampp-php.ps1' $ok $detail
-        if (-not $ok) {
-            throw 'PHP の更新スクリプトが失敗しました。'
-        }
-
-        Write-Host '==> update-xampp-apache.ps1 を適用'
-        $update = & (Join-Path $repoRoot 'update-xampp-apache.ps1') -XamppDir $root -DownloadDir $downloads -Yes -PassThru
-        $exitCode = $LASTEXITCODE
-        $ok = ($exitCode -eq 0) -and $update -and ($update.ToVersion -eq $ExpectedApacheVersion) -and $update.Backup -and (Test-Path -LiteralPath $update.Backup)
-        $detail = "終了コード $exitCode"
-        if ($update) {
-            $detail = '{0} -> {1}、更新 {2} 追加 {3} ファイル、証明書の作り直し: {4}' -f $update.FromVersion, $update.ToVersion,
-                @($update.Updated).Count, @($update.Added).Count, [bool]$update.Certificate
-        }
-        Add-Result 'update-xampp-apache.ps1' $ok $detail
-        if (-not $ok) {
-            throw 'Apache の更新スクリプトが失敗しました。'
+        foreach ($name in $UpdateScripts) {
+            Write-Host "==> update-xampp-$name.ps1 を適用"
+            $update = & (Join-Path $repoRoot "update-xampp-$name.ps1") -XamppDir $root -DownloadDir $downloads -Yes -PassThru
+            $exitCode = $LASTEXITCODE
+            $ok = ($exitCode -eq 0) -and $update -and $update.Backup -and (Test-Path -LiteralPath $update.Backup)
+            $detail = "終了コード $exitCode"
+            if ($update) {
+                $detail = '{0} -> {1}' -f $update.FromVersion, $update.ToVersion
+            }
+            Add-Result "update-xampp-$name.ps1" $ok $detail
+            if (-not $ok) {
+                throw "update-xampp-$name.ps1 が失敗しました。"
+            }
         }
     }
 
@@ -216,6 +311,18 @@ try {
     }
     if (-not (Select-String -LiteralPath (Join-Path $root 'apache\conf\httpd.conf') -SimpleMatch "Listen 127.0.0.1:$Port" -Quiet)) {
         throw 'httpd.conf の Listen を変更できませんでした。'
+    }
+    if ($hasMariaDb -and $hasPhpMyAdmin) {
+        # phpMyAdmin の接続先を、確認用に起動する MariaDB のポートにする
+        Edit-TextFile (Join-Path $root 'phpMyAdmin\config.inc.php') {
+            param($text)
+            $line = "`$cfg['Servers'][`$i]['port'] = '$dbPort';`r`n"
+            $at = $text.LastIndexOf('?>')
+            if ($at -lt 0) {
+                return $text + "`r`n" + $line
+            }
+            return $text.Insert($at, $line)
+        }
     }
 
     $htdocs = Join-Path $root 'htdocs'
@@ -263,6 +370,16 @@ while (true) {
 ini_set('memory_limit', '32M');
 $big = str_repeat('x', 96 * 1048576);
 echo strlen($big);
+'@
+    Set-Content -LiteralPath (Join-Path $htdocs '__db.php') -Encoding Ascii -Value @'
+<?php
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+header('Content-Type: application/json');
+$db = new mysqli('127.0.0.1', 'root', '', 'test', (int) $_GET['port']);
+$db->query('CREATE TABLE IF NOT EXISTS smoke_php (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(20))');
+$db->query("INSERT INTO smoke_php (name) VALUES ('from php')");
+$count = $db->query('SELECT COUNT(*) FROM smoke_php')->fetch_row()[0];
+echo json_encode(array('server' => $db->server_info, 'rows' => (int) $count));
 '@
 
     Write-Host '==> Apache を起動'
@@ -396,17 +513,58 @@ echo strlen($big);
     $restarted = [bool](Select-String -LiteralPath $errorLog -Pattern 'exited with status 137' -Quiet)
     $bigDetail = 'HTTP {0}、Allowed memory size のエラー: {1}、子プロセスの再起動: {2}、応答まで {3:N1} 秒' -f ($big.Status -replace '\s+', ' '), ($big.Body -match 'Allowed memory size'), $restarted, $watch.Elapsed.TotalSeconds
     Add-Result 'memory_limit を大きく超える確保のあとの応答' $recovered $bigDetail
+
+    if ($hasMariaDb) {
+        Write-Host "==> MariaDB を起動（127.0.0.1:$dbPort）"
+        $mysqlLog = Join-Path $root 'mysql\data\mysql_error.log'
+        $logOffset = 0
+        if (Test-Path -LiteralPath $mysqlLog) {
+            $logOffset = (Get-Item -LiteralPath $mysqlLog).Length
+        }
+        $mariadb = Start-TestMariaDb $root $dbPort
+        $version = (Invoke-Sql $root $dbPort 'SELECT VERSION();').Output.Trim()
+        Add-Result 'MariaDB のバージョン（XAMPP と同じ引数で起動）' ($version -like "$ExpectedMariaDbVersion-*") $version
+        if ($seeded) {
+            $rows = (Invoke-Sql $root $dbPort "SELECT GROUP_CONCAT(name ORDER BY id) FROM xampp_update_test.t;").Output.Trim()
+            Add-Result '強制終了のあとに移行したデータ' ($rows -eq 'alpha,beta,gamma') $rows
+        }
+        $dbResponse = Invoke-Http "http://127.0.0.1:$Port/__db.php?port=$dbPort" @()
+        $dbOk = $false
+        $dbDetail = "HTTP $($dbResponse.Status) $($dbResponse.Body)"
+        if ($dbResponse.Status -eq '200') {
+            $dbInfo = $dbResponse.Body | ConvertFrom-Json
+            $dbOk = ($dbInfo.server -like "$ExpectedMariaDbVersion-*") -and ($dbInfo.rows -ge 1)
+            $dbDetail = 'mysqli で接続、サーバー {0}、書き込んだ行 {1}' -f $dbInfo.server, $dbInfo.rows
+        }
+        Add-Result 'PHP（mysqli）からの読み書き' $dbOk $dbDetail
+
+        if ($hasPhpMyAdmin) {
+            $pma = Invoke-Http "http://127.0.0.1:$Port/phpmyadmin/index.php" @('-L')
+            $pmaOk = ($pma.Status -eq '200') -and ($pma.Body -match [regex]::Escape($ExpectedMariaDbVersion)) -and ($pma.Body -match [regex]::Escape($ExpectedPhpMyAdminVersion))
+            Add-Result 'phpMyAdmin の画面' $pmaOk ('HTTP {0}、MariaDB {1} の表示: {2}、phpMyAdmin {3} の表示: {4}' -f $pma.Status, $ExpectedMariaDbVersion,
+                ($pma.Body -match [regex]::Escape($ExpectedMariaDbVersion)), $ExpectedPhpMyAdminVersion, ($pma.Body -match [regex]::Escape($ExpectedPhpMyAdminVersion)))
+        }
+
+        Stop-TestMariaDb $root $dbPort $mariadb
+        $dbErrors = @((Read-LogSince $mysqlLog $logOffset) -split "`r?`n" | Where-Object { $_ -match '\[ERROR\]' })
+        Add-Result 'mysql_error.log に起動中のエラー' ($dbErrors.Count -eq 0) $(if ($dbErrors.Count) { $dbErrors[0].Trim() } else { 'なし' })
+    } else {
+        Add-Result 'MariaDB' $true '入っていないため省略'
+    }
 } catch {
     Add-Result '実行' $false $_.Exception.Message
 } finally {
-    Stop-Httpd $httpd
+    Stop-ProcessTree $httpd
+    if ($mariadb -and -not $mariadb.HasExited) {
+        Stop-ProcessTree $mariadb
+    }
 }
 
 if ($before) {
-    Write-Host '==> update-xampp-apache.ps1 -Restore と update-xampp-php.ps1 -Restore'
+    Write-Host '==> 各スクリプトの -Restore'
     $restoreCodes = @()
-    foreach ($script in 'update-xampp-apache.ps1', 'update-xampp-php.ps1') {
-        $restore = Invoke-Native 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $repoRoot $script), '-XamppDir', $root, '-Restore', '-Yes')
+    foreach ($name in @($UpdateScripts)[($UpdateScripts.Count - 1)..0]) {
+        $restore = Invoke-Native 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $repoRoot "update-xampp-$name.ps1"), '-XamppDir', $root, '-Restore', '-Yes')
         $restoreCodes += $restore.ExitCode
     }
     $now = Get-Snapshot $root

@@ -1,18 +1,18 @@
 ﻿XAMPP セキュリティ更新版（非公式）
 
-このセットアップは、XAMPP for Windows 8.2.12 の PHP と Apache を新しいものに入れ替えた XAMPP を入れます。Apache Friends（XAMPP の開発元）による公式の配布物ではありません。
+このセットアップは、XAMPP for Windows 8.2.12 の PHP、Apache、MariaDB、phpMyAdmin を新しいものに入れ替えた XAMPP を入れます。Apache Friends（XAMPP の開発元）による公式の配布物ではありません。
 
 ■ 入るもの
 ・Apache 2.4.69（Apache Lounge の Windows 版。OpenSSL 3.5.9）
 ・PHP 8.2.35（php.net 公式の Windows 版。CVE-2026-109618 / CVE-2026-109619 を修正）
 ・XAMPP コントロールパネル、ダッシュボードなど XAMPP 8.2.12 の基本部分
-・MariaDB 10.4.32、phpMyAdmin 5.2.1（選んだ場合）
+・MariaDB 11.4.13（長期サポート版。2029 年 5 月までサポート）、phpMyAdmin 5.2.3（選んだ場合）
 
 ■ 入らないもの
 Perl、Tomcat、FileZilla Server、Mercury Mail、Webalizer、fake sendmail は、サポートが終わっているか古いため入れません。PHP の enchant 拡張も入りません。
 
 ■ 注意
-・MariaDB 10.4 はサポートが終わっていて、phpMyAdmin 5.2.1 も最新版ではありません。XAMPP はインターネットに公開しないでください。
+・XAMPP は開発用の環境です。MariaDB の root にはパスワードが設定されていません（XAMPP と同じ）。インターネットには公開しないでください。
 ・HTTPS 用の証明書（localhost 用の自己署名証明書）は、インストールのときにこの PC だけの鍵で作ります。
 ・インストール先は、空白や日本語を含まないフォルダにしてください。既に XAMPP があるフォルダには入れられません。既存の XAMPP を更新するときは、配布ページの update-xampp.bat を使ってください。
 ・Microsoft Visual C++ 再頒布可能パッケージ（x64）14.51 以上が必要です。

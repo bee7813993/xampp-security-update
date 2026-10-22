@@ -120,10 +120,10 @@ try {
     $iscc = Find-Iscc
     Write-Info $iscc
     New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-    $name = 'xampp-8.2.12-php{0}-apache{1}-setup' -f $versions.Php, $versions.Apache
+    $name = 'xampp-8.2.12-php{0}-apache{1}-mariadb{2}-setup' -f $versions.Php, $versions.Apache, $versions.MariaDb
     $defines = @(
         "/DStageDir=$parts"
-        "/DAppVersion=8.2.12-php$($versions.Php)-apache$($versions.Apache)"
+        "/DAppVersion=8.2.12-php$($versions.Php)-apache$($versions.Apache)-mariadb$($versions.MariaDb)"
         "/DPhpVersion=$($versions.Php)"
         "/DApacheVersion=$($versions.Apache)"
         "/DMariaDbVersion=$($versions.MariaDb)"

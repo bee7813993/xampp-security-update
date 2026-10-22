@@ -14,7 +14,7 @@
 AppId={{BB7364E5-EE3F-4445-8B9B-B8B60ACC0445}
 AppName=XAMPP セキュリティ更新版（非公式）
 AppVersion={#AppVersion}
-AppVerName=XAMPP 8.2.12 セキュリティ更新版（PHP {#PhpVersion} / Apache {#ApacheVersion}、非公式）
+AppVerName=XAMPP 8.2.12 セキュリティ更新版（PHP {#PhpVersion} / Apache {#ApacheVersion} / MariaDB {#MariaDbVersion}、非公式）
 AppPublisher=xampp-security-update
 AppPublisherURL=https://github.com/bee7813993/xampp-security-update
 AppSupportURL=https://github.com/bee7813993/xampp-security-update/issues
