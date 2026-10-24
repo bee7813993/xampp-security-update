@@ -80,23 +80,31 @@ Type: files; Name: "{app}\apache\conf\ssl.key\server.key"
 const
   VcRedistUrl = 'https://aka.ms/vc14/vc_redist.x64.exe';
 
-{ ファイルのバージョンが Major.Minor.Build 以上か }
+{ ファイルのバージョンが Major.Minor.Build 以上か（読んだファイルと版はログに書く） }
 function VersionAtLeast(const FileName: String; Major, Minor, Build: Cardinal): Boolean;
 var
   MS, LS, MinMS, MinLS: Cardinal;
+  Found: Boolean;
 begin
   MinMS := (Major shl 16) or Minor;
   MinLS := Build shl 16;
-  Result := GetVersionNumbers(FileName, MS, LS) and ((MS > MinMS) or ((MS = MinMS) and (LS >= MinLS)));
+  Found := GetVersionNumbers(FileName, MS, LS);
+  Result := Found and ((MS > MinMS) or ((MS = MinMS) and (LS >= MinLS)));
+  if Found then
+    Log(Format('VC++ runtime check: %s %d.%d.%d', [FileName, MS shr 16, MS and $FFFF, LS shr 16]))
+  else
+    Log('VC++ runtime check: ' + FileName + ' not found');
 end;
 
-{ Apache Lounge の VS18 ビルドには Visual C++ ランタイム 14.51.36247 以上が必要 }
+// Apache Lounge の VS18 ビルドには Visual C++ ランタイム（x64）14.51.36247 以上が必要。
+// セットアップは 32 ビットのプログラムなので、[Code] の sys 定数は 32 ビット用の SysWOW64 を指してしまう
+// （x64 のランタイムを入れても、32 ビットのものが古いと通らない）。64 ビットの System32 を指す sysnative 定数を使う。
 function InitializeSetup(): Boolean;
 var
   ErrorCode: Integer;
 begin
-  Result := VersionAtLeast(ExpandConstant('{sys}\vcruntime140.dll'), 14, 51, 36247) and
-    VersionAtLeast(ExpandConstant('{sys}\msvcp140.dll'), 14, 51, 36247);
+  Result := VersionAtLeast(ExpandConstant('{sysnative}\vcruntime140.dll'), 14, 51, 36247) and
+    VersionAtLeast(ExpandConstant('{sysnative}\msvcp140.dll'), 14, 51, 36247);
   if not Result then
   begin
     if SuppressibleMsgBox('Apache {#ApacheVersion} の実行には、Microsoft Visual C++ 再頒布可能パッケージ（x64）14.51 以上が必要です。' + #13#10#13#10 +

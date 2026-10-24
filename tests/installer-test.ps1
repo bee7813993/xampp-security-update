@@ -78,6 +78,10 @@ try {
     if ($process.ExitCode -ne 0) {
         throw "インストールに失敗しました。ログ: $log"
     }
+    # Visual C++ ランタイムの確認が、32 ビット用の SysWOW64 ではなく 64 ビットの System32（Sysnative）を見ているか
+    $runtimeChecks = @(Select-String -LiteralPath $log -Pattern 'VC\+\+ runtime check: (.+)$' | ForEach-Object { $_.Matches[0].Groups[1].Value.Trim() })
+    $runtimeOk = ($runtimeChecks.Count -ge 2) -and @($runtimeChecks | Where-Object { $_ -notmatch '(?i)\\Sysnative\\' }).Count -eq 0
+    Add-Result 'Visual C++ ランタイムの確認（64 ビットの DLL）' $runtimeOk $(if ($runtimeChecks.Count) { $runtimeChecks -join '、' } else { 'ログに確認の記録がありません' })
 
     Write-Host '==> 中身の確認'
     $present = 'xampp-control.exe', 'apache\bin\httpd.exe', 'php\php8ts.dll', 'php\php.ini', 'mysql\bin\mysqld.exe', 'mysql\data',
